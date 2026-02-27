@@ -45,6 +45,8 @@ public:
     // ─── Systems ─────────────────────────────────────────────────────
     FSM fsm;
     UtilityAI utilityAI;
+    BehaviorTree combatBT;
+    BehaviorTree socializeBT;
     PerceptionSystem perception;
     MemorySystem memory{50};
     EmotionSystem emotions;
@@ -53,6 +55,9 @@ public:
     TradeSystem trade;
     ScheduleSystem schedule;
     std::shared_ptr<Pathfinder> pathfinder;
+
+    // ─── AI Control ──────────────────────────────────────────────────
+    bool useUtilityAI = false;
 
     // ─── Movement state ──────────────────────────────────────────────
     std::vector<Vec2> currentPath;

@@ -20,6 +20,9 @@ NPC* GameWorld::findNPC(const std::string& name) {
 void GameWorld::update(float dt) {
     time_.update(dt, events_);
 
+    // Process scheduled world events
+    eventManager_.update(time_.currentHour(), *this);
+
     for (auto& npc : npcs_) {
         npc->update(dt, *this);
     }

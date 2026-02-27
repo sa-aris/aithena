@@ -48,6 +48,12 @@ void NPC::update(float dt, GameWorld& world) {
     bb.set<std::string>("dominant_emotion", emotionToString(emotions.getDominantEmotion()));
     bb.set<float>("flee_modifier", emotions.getFleeModifier());
 
+    // Need urgencies for Utility AI
+    bb.set<float>("hunger_urgency", emotions.getNeed(NeedType::Hunger).urgency());
+    bb.set<float>("sleep_urgency", emotions.getNeed(NeedType::Sleep).urgency());
+    bb.set<float>("social_urgency", emotions.getNeed(NeedType::Social).urgency());
+    bb.set<float>("safety_value", emotions.getNeed(NeedType::Safety).value / 100.0f);
+
     // Schedule info
     auto currentActivity = schedule.getCurrentActivity(world.time().currentHour());
     if (currentActivity) {
@@ -55,8 +61,28 @@ void NPC::update(float dt, GameWorld& world) {
         bb.set<std::string>("scheduled_location", currentActivity->location);
     }
 
-    // ─── 6. Update FSM (main behavior driver) ───────────────────────
+    // ─── 6. AI Decision & Behavior ──────────────────────────────────
+    if (useUtilityAI) {
+        // 6a. Utility AI evaluates all actions and picks the best
+        auto decision = utilityAI.evaluate(bb);
+        if (decision) {
+            // 6b. The action's callback sets "desired_state" on the blackboard
+            // which the FSM transitions pick up
+            bb.set<std::string>("utility_decision", decision->actionName);
+            bb.set<float>("utility_score", decision->score);
+        }
+    }
+
+    // 6c. FSM update (uses blackboard data for transitions)
     fsm.update(dt);
+
+    // 6d. Behavior Trees tick in specific states
+    std::string state = fsm.currentState();
+    if (state == "Combat") {
+        combatBT.tick(bb);
+    } else if (state == "Socialize") {
+        socializeBT.tick(bb);
+    }
 
     // ─── 7. Movement ─────────────────────────────────────────────────
     updateMovement(dt);

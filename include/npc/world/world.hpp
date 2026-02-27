@@ -4,6 +4,7 @@
 #include "../core/vec2.hpp"
 #include "../event/event_system.hpp"
 #include "time_system.hpp"
+#include "world_event_manager.hpp"
 #include <vector>
 #include <map>
 #include <string>
@@ -81,6 +82,7 @@ public:
     TimeSystem& time() { return time_; }
     const TimeSystem& time() const { return time_; }
     EventBus& events() { return events_; }
+    WorldEventManager& eventManager() { return eventManager_; }
 
     // ─── Simulation step ─────────────────────────────────────────────
     void update(float dt);
@@ -100,6 +102,7 @@ private:
     std::vector<std::shared_ptr<NPC>> npcs_;
     TimeSystem time_{6.0f};
     EventBus events_;
+    WorldEventManager eventManager_;
 };
 
 } // namespace npc
