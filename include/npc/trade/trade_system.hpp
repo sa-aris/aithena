@@ -74,6 +74,16 @@ public:
     Inventory inventory{200.0f, 100.0f};
     float buyMarkup = 1.3f;    // 30% markup when NPC sells
     float sellMarkdown = 0.6f; // 40% markdown when NPC buys
+    float scarcityMod_ = 1.0f;
+    float relDiscountMod_ = 1.0f;
+
+    void applyPersonality(float buyMarkupMul, float sellMarkdownMul,
+                          float scarcityMul, float relDiscountMul) {
+        buyMarkup *= buyMarkupMul;
+        sellMarkdown *= sellMarkdownMul;
+        scarcityMod_ = scarcityMul;
+        relDiscountMod_ = relDiscountMul;
+    }
 
     void registerItem(Item item) {
         itemDB_[item.id] = std::move(item);
@@ -96,10 +106,10 @@ public:
             price *= modIt->second;
         }
 
-        // Scarcity: less stock → higher price
+        // Scarcity: less stock -> higher price (personality-modulated)
         int stock = inventory.getQuantity(id);
         if (playerBuying && stock <= 2) {
-            price *= 1.5f; // scarce
+            price *= (1.0f + 0.5f * scarcityMod_);
         }
 
         // Apply markup/markdown
@@ -109,8 +119,8 @@ public:
             price *= sellMarkdown;
         }
 
-        // Relationship discount
-        price *= (1.0f - relationshipDiscount_);
+        // Relationship discount (personality-modulated)
+        price *= (1.0f - relationshipDiscount_ * relDiscountMod_);
 
         return std::round(price * 100.0f) / 100.0f;
     }

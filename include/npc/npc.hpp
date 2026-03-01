@@ -18,6 +18,7 @@
 #include "social/group_behavior.hpp"
 #include "schedule/schedule_system.hpp"
 #include "navigation/pathfinding.hpp"
+#include "personality/personality_traits.hpp"
 
 #include <string>
 #include <vector>
@@ -36,6 +37,9 @@ public:
     std::string name;
     NPCType type;
     FactionId factionId = NO_FACTION;
+
+    // ─── Personality ──────────────────────────────────────────────────
+    PersonalityTraits personality;
 
     // ─── Position ────────────────────────────────────────────────────
     Vec2 position;
@@ -125,8 +129,10 @@ public:
     // ─── Event handling ──────────────────────────────────────────────
     void onCombatEvent(const CombatEvent& e) {
         if (e.defender == id) {
-            emotions.addEmotion(EmotionType::Angry, 0.6f, 2.0f);
-            emotions.depletNeed(NeedType::Safety, 30.0f);
+            emotions.addEmotion(EmotionType::Angry,
+                0.6f * personality.angerIntensityMultiplier(), 2.0f);
+            emotions.depletNeed(NeedType::Safety,
+                30.0f * personality.fearIntensityMultiplier());
             memory.addMemory(MemoryType::Combat,
                 "Was attacked", -0.8f, e.attacker, 0.9f);
         }
@@ -138,8 +144,10 @@ public:
 
     void onWorldEvent(const WorldEvent& e) {
         if (e.severity > 0.5f) {
-            emotions.addEmotion(EmotionType::Fearful, e.severity * 0.8f, 3.0f);
-            emotions.depletNeed(NeedType::Safety, e.severity * 40.0f);
+            emotions.addEmotion(EmotionType::Fearful,
+                e.severity * 0.8f * personality.fearIntensityMultiplier(), 3.0f);
+            emotions.depletNeed(NeedType::Safety,
+                e.severity * 40.0f * personality.fearIntensityMultiplier());
             memory.addMemory(MemoryType::WorldEvent, e.description, -e.severity);
         }
     }
@@ -157,7 +165,8 @@ public:
            << " | HP: " << static_cast<int>(combat.stats.health)
            << "/" << static_cast<int>(combat.stats.maxHealth)
            << " | State: " << fsm.currentState()
-           << " | Mood: " << emotions.getMoodString();
+           << " | Mood: " << emotions.getMoodString()
+           << " | Traits: " << personality.traitSummary();
         return ss.str();
     }
 

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../core/types.hpp"
+#include "../personality/personality_traits.hpp"
 #include <map>
 #include <vector>
 #include <string>
@@ -68,16 +69,25 @@ public:
     }
 
     void addEmotion(EmotionType type, float intensity = 0.5f, float duration = 1.0f) {
+        // Apply personality modifiers to emotion intensity
+        float adjustedIntensity = intensity;
+        if (type == EmotionType::Fearful) {
+            adjustedIntensity *= fearIntensityMod_;
+        } else if (type == EmotionType::Angry) {
+            adjustedIntensity *= angerIntensityMod_;
+        }
+        adjustedIntensity = std::clamp(adjustedIntensity, 0.0f, 1.0f);
+
         // If same emotion exists, intensify it
         for (auto& e : emotions_) {
             if (e.type == type) {
-                e.intensity = std::min(1.0f, e.intensity + intensity * 0.5f);
+                e.intensity = std::min(1.0f, e.intensity + adjustedIntensity * 0.5f);
                 e.duration = std::max(e.duration - e.elapsed, duration);
                 e.elapsed = 0.0f;
                 return;
             }
         }
-        emotions_.push_back({type, intensity, duration, 0.0f});
+        emotions_.push_back({type, adjustedIntensity, duration, 0.0f});
     }
 
     void satisfyNeed(NeedType type, float amount) {
@@ -155,11 +165,15 @@ public:
     float getCombatModifier() const {
         float mod = 1.0f;
         float safety = needs_.at(NeedType::Safety).value / 100.0f;
-        mod *= (0.5f + safety * 0.5f);  // low safety → less willing to fight
+        mod *= (0.5f + safety * 0.5f);
 
         for (const auto& e : emotions_) {
-            if (e.type == EmotionType::Angry) mod *= (1.0f + e.intensity * 0.3f);
-            if (e.type == EmotionType::Fearful) mod *= (1.0f - e.intensity * 0.4f);
+            if (e.type == EmotionType::Angry) {
+                mod *= (1.0f + e.intensity * 0.3f * angerIntensityMod_);
+            }
+            if (e.type == EmotionType::Fearful) {
+                mod *= (1.0f - e.intensity * 0.4f * fearIntensityMod_);
+            }
         }
         return std::clamp(mod, 0.1f, 2.0f);
     }
@@ -179,6 +193,7 @@ public:
         }
         float safety = 1.0f - needs_.at(NeedType::Safety).value / 100.0f;
         mod += safety * 0.5f;
+        mod *= fearIntensityMod_;
         return std::clamp(mod, 0.0f, 1.0f);
     }
 
@@ -214,12 +229,29 @@ private:
             emotionScore /= static_cast<float>(emotions_.size());
         }
 
-        mood_ = std::clamp(needScore * 0.6f + emotionScore * 0.4f, -1.0f, 1.0f);
+        float emotionWeight = 0.4f * moodStabilityMod_;
+        float needWeight = 1.0f - emotionWeight;
+        mood_ = std::clamp(needScore * needWeight + emotionScore * emotionWeight, -1.0f, 1.0f);
     }
 
     std::map<NeedType, Need> needs_;
     std::vector<EmotionState> emotions_;
     float mood_ = 0.5f;
+
+    // Personality influence modifiers
+    float fearIntensityMod_ = 1.0f;
+    float angerIntensityMod_ = 1.0f;
+    float socialDecayMod_ = 1.0f;
+    float moodStabilityMod_ = 1.0f;
+
+public:
+    void applyPersonality(const PersonalityTraits& p) {
+        fearIntensityMod_ = p.fearIntensityMultiplier();
+        angerIntensityMod_ = p.angerIntensityMultiplier();
+        socialDecayMod_ = p.socialDecayMultiplier();
+        moodStabilityMod_ = p.moodStabilityMultiplier();
+        needs_[NeedType::Social].decayRate *= socialDecayMod_;
+    }
 };
 
 } // namespace npc

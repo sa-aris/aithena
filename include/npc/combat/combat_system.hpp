@@ -55,6 +55,17 @@ public:
     CombatStats stats;
     bool inCombat = false;
 
+    // Personality-derived modifiers
+    float fleeThresholdMod_ = 1.0f;
+    float healThreshold_ = 0.5f;
+    float threatAwarenessMod_ = 1.0f;
+
+    void applyPersonality(float fleeThresholdMul, float healThresh, float threatAwarenessMul) {
+        fleeThresholdMod_ = fleeThresholdMul;
+        healThreshold_ = healThresh;
+        threatAwarenessMod_ = threatAwarenessMul;
+    }
+
     void update(float dt) {
         // Reduce cooldowns
         for (auto& ability : stats.abilities) {
@@ -73,8 +84,8 @@ public:
             if (!pe.isHostile || pe.awareness < AwarenessLevel::Alert) continue;
 
             float dist = myPos.distanceTo(pe.lastKnownPosition);
-            float threat = pe.awarenessValue * 50.0f;
-            threat += (1.0f / std::max(1.0f, dist)) * 30.0f; // closer = more threat
+            float threat = pe.awarenessValue * 50.0f * threatAwarenessMod_;
+            threat += (1.0f / std::max(1.0f, dist)) * 30.0f;
             threatTable_.push_back({pe.entityId, threat, dist, pe.lastKnownPosition});
         }
         std::sort(threatTable_.begin(), threatTable_.end(),
@@ -159,12 +170,14 @@ public:
     }
 
     bool shouldFlee() const {
-        return stats.healthPercent() < 0.2f ||
-               (threatTable_.size() >= 3 && stats.healthPercent() < 0.5f);
+        float lowThreshold = 0.2f * fleeThresholdMod_;
+        float outnumberedThreshold = 0.5f * fleeThresholdMod_;
+        return stats.healthPercent() < lowThreshold ||
+               (threatTable_.size() >= 3 && stats.healthPercent() < outnumberedThreshold);
     }
 
     bool shouldHeal() const {
-        return stats.healthPercent() < 0.5f && selectHealAbility() != nullptr;
+        return stats.healthPercent() < healThreshold_ && selectHealAbility() != nullptr;
     }
 
     Vec2 getFlankPosition(Vec2 myPos, Vec2 targetPos) const {

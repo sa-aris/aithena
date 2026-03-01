@@ -61,6 +61,13 @@ void NPC::update(float dt, GameWorld& world) {
     bb.set<float>("social_urgency", emotions.getNeed(NeedType::Social).urgency());
     bb.set<float>("safety_value", emotions.getNeed(NeedType::Safety).value / 100.0f);
 
+    // Personality traits for AI scoring
+    bb.set<float>("trait_courage", personality.courage);
+    bb.set<float>("trait_sociability", personality.sociability);
+    bb.set<float>("trait_greed", personality.greed);
+    bb.set<float>("trait_patience", personality.patience);
+    bb.set<float>("trait_intelligence", personality.intelligence);
+
     // Schedule info
     auto currentActivity = schedule.getCurrentActivity(world.time().currentHour());
     if (currentActivity) {

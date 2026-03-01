@@ -70,7 +70,9 @@ void scheduleWorldEvents(GameWorld& world, FactionSystem& factions,
                          std::shared_ptr<Pathfinder> pf);
 void runCombatRound(GameWorld& world, const std::string& timeStr);
 void logRelationship(const std::string& timeStr, const std::string& a,
-                     const std::string& b, EntityId idA, EntityId idB, float delta);
+                     const std::string& b, EntityId idA, EntityId idB, float delta,
+                     const PersonalityTraits* traitsA = nullptr,
+                     const PersonalityTraits* traitsB = nullptr);
 
 // =======================================================================
 //  MAIN
@@ -201,6 +203,7 @@ int main() {
         if (npc->name == "Farhan") continue; // traveling merchant left
 
         std::cout << "  " << npc->getInfo() << "\n";
+        std::cout << "    Personality: " << npc->personality.toString() << "\n";
 
         // Need summary
         const auto& needs = npc->emotions.needs();
@@ -384,6 +387,19 @@ void setupUtilityAI(NPC& npc) {
         default: break;
     }
 
+    // Personality modulation of base weights
+    float c = npc.personality.courage;
+    float s = npc.personality.sociability;
+    float g = npc.personality.greed;
+    float p = npc.personality.patience;
+
+    fightW *= (0.5f + c);       // courage=1 -> 1.5x, courage=0 -> 0.5x
+    fleeW  *= (1.5f - c);       // courage=1 -> 0.5x, courage=0 -> 1.5x
+    socializeW *= (0.5f + s);   // sociability=1 -> 1.5x
+    tradeW *= (0.5f + g);       // greed=1 -> 1.5x
+    workW   *= (0.5f + p);      // patience=1 -> 1.5x
+    patrolW *= (0.5f + p);
+
     // Fight action
     npc.utilityAI.addAction("fight",
         [](const Blackboard& bb) -> float {
@@ -498,8 +514,8 @@ void setupCombatBT(NPC& npc, GameWorld& world) {
         .selector("CombatRoot")
             // Branch 1: Heal check
             .sequence("HealCheck")
-                .condition("HP < 40%?", [](const Blackboard& bb) {
-                    return bb.getOr<float>("health_pct", 1.0f) < 0.4f;
+                .condition("HP low?", [&npc](const Blackboard& bb) {
+                    return bb.getOr<float>("health_pct", 1.0f) < npc.personality.healThreshold();
                 })
                 .action("UseHealPotion", [&npc](Blackboard& bb) -> NodeStatus {
                     auto* healAbility = npc.combat.selectHealAbility();
@@ -526,7 +542,8 @@ void setupCombatBT(NPC& npc, GameWorld& world) {
                             auto target = npc.combat.selectTarget();
                             if (!target) return false;
                             float dist = npc.position.distanceTo(target->position);
-                            return dist > 3.0f && dist < 10.0f;
+                            float minFlankDist = 3.0f * (1.5f - npc.personality.patience);
+                            return dist > minFlankDist && dist < 10.0f;
                         })
                         .action("MoveToFlank", [&npc](Blackboard& bb) -> NodeStatus {
                             auto target = npc.combat.selectTarget();
@@ -657,13 +674,31 @@ void setupCombatBT(NPC& npc, GameWorld& world) {
 // =======================================================================
 
 void logRelationship(const std::string& timeStr, const std::string& a,
-                     const std::string& b, EntityId idA, EntityId idB, float delta) {
+                     const std::string& b, EntityId idA, EntityId idB, float delta,
+                     const PersonalityTraits* traitsA,
+                     const PersonalityTraits* traitsB) {
+    float adjustedDelta = delta;
+    if (delta > 0.0f) {
+        float avgSocMul = 1.0f;
+        if (traitsA) avgSocMul *= traitsA->relationshipGainMultiplier();
+        if (traitsB) avgSocMul *= traitsB->relationshipGainMultiplier();
+        if (traitsA && traitsB) avgSocMul = std::sqrt(avgSocMul);
+        adjustedDelta *= avgSocMul;
+    } else {
+        float avgPatMul = 1.0f;
+        if (traitsA) avgPatMul *= traitsA->negativeRelationshipMultiplier();
+        if (traitsB) avgPatMul *= traitsB->negativeRelationshipMultiplier();
+        if (traitsA && traitsB) avgPatMul = std::sqrt(avgPatMul);
+        adjustedDelta *= avgPatMul;
+    }
+
     float before = g_relationships.getRelationship(idA, idB);
-    g_relationships.modifyRelationship(idA, idB, delta);
+    g_relationships.modifyRelationship(idA, idB, adjustedDelta);
     float after = g_relationships.getRelationship(idA, idB);
     std::cout << "[" << timeStr << "] " << a << "-" << b << " relationship: "
               << static_cast<int>(before) << " -> " << static_cast<int>(after)
-              << " (+" << static_cast<int>(delta) << ")\n";
+              << " (" << (adjustedDelta >= 0 ? "+" : "")
+              << static_cast<int>(adjustedDelta) << ")\n";
 }
 
 // =======================================================================
@@ -716,7 +751,8 @@ void runCombatRound(GameWorld& world, const std::string& timeStr) {
             std::cout << "[" << timeStr << "] " << brina->name
                       << ": \"That was close. My hammer arm is sore.\"\n";
             logRelationship(timeStr, "Alaric", "Brina",
-                            alaric->id, brina->id, 20.0f);
+                            alaric->id, brina->id, 20.0f,
+                            &alaric->personality, &brina->personality);
         }
         return;
     }
@@ -876,6 +912,15 @@ std::shared_ptr<NPC> createAlaric(GameWorld& world, std::shared_ptr<Pathfinder> 
     npc->position = Vec2(20.0f, 12.0f);
     npc->pathfinder = pf;
     npc->factionId = VILLAGE_FACTION;
+    npc->personality = PersonalityTraits::guard();
+    npc->emotions.applyPersonality(npc->personality);
+    npc->combat.applyPersonality(
+        npc->personality.fleeThresholdMultiplier(),
+        npc->personality.healThreshold(),
+        npc->personality.threatAwarenessMultiplier());
+    npc->perception.config.sightRange *= npc->personality.sightRangeMultiplier();
+    npc->perception.config.awarenessDecayRate *= npc->personality.awarenessDecayMultiplier();
+    npc->memory = MemorySystem(static_cast<size_t>(50 * npc->personality.memoryCapacityMultiplier()));
     npc->schedule = ScheduleSystem::createGuardSchedule();
 
     // Combat stats - strong fighter
@@ -1043,6 +1088,15 @@ std::shared_ptr<NPC> createBrina(GameWorld& world, std::shared_ptr<Pathfinder> p
     npc->position = Vec2(16.0f, 11.0f);
     npc->pathfinder = pf;
     npc->factionId = VILLAGE_FACTION;
+    npc->personality = PersonalityTraits::blacksmith();
+    npc->emotions.applyPersonality(npc->personality);
+    npc->combat.applyPersonality(
+        npc->personality.fleeThresholdMultiplier(),
+        npc->personality.healThreshold(),
+        npc->personality.threatAwarenessMultiplier());
+    npc->perception.config.sightRange *= npc->personality.sightRangeMultiplier();
+    npc->perception.config.awarenessDecayRate *= npc->personality.awarenessDecayMultiplier();
+    npc->memory = MemorySystem(static_cast<size_t>(50 * npc->personality.memoryCapacityMultiplier()));
     npc->schedule = ScheduleSystem::createBlacksmithSchedule();
 
     npc->combat.stats = {80.0f, 80.0f, 15.0f, 10.0f, 4.0f, 0.1f, {}};
@@ -1203,6 +1257,20 @@ std::shared_ptr<NPC> createCedric(GameWorld& world, std::shared_ptr<Pathfinder> 
     npc->position = Vec2(25.0f, 12.0f);
     npc->pathfinder = pf;
     npc->factionId = VILLAGE_FACTION;
+    npc->personality = PersonalityTraits::merchant();
+    npc->emotions.applyPersonality(npc->personality);
+    npc->combat.applyPersonality(
+        npc->personality.fleeThresholdMultiplier(),
+        npc->personality.healThreshold(),
+        npc->personality.threatAwarenessMultiplier());
+    npc->perception.config.sightRange *= npc->personality.sightRangeMultiplier();
+    npc->perception.config.awarenessDecayRate *= npc->personality.awarenessDecayMultiplier();
+    npc->memory = MemorySystem(static_cast<size_t>(50 * npc->personality.memoryCapacityMultiplier()));
+    npc->trade.applyPersonality(
+        npc->personality.buyMarkupMultiplier(),
+        npc->personality.sellMarkdownMultiplier(),
+        npc->personality.scarcityMultiplier(),
+        npc->personality.relationshipDiscountMultiplier());
     npc->schedule = ScheduleSystem::createMerchantSchedule();
 
     npc->combat.stats = {60.0f, 60.0f, 8.0f, 5.0f, 3.0f, 0.05f, {}};
@@ -1313,6 +1381,20 @@ std::shared_ptr<NPC> createDagna(GameWorld& world, std::shared_ptr<Pathfinder> p
     npc->position = Vec2(8.0f, 7.0f);
     npc->pathfinder = pf;
     npc->factionId = VILLAGE_FACTION;
+    npc->personality = PersonalityTraits::innkeeper();
+    npc->emotions.applyPersonality(npc->personality);
+    npc->combat.applyPersonality(
+        npc->personality.fleeThresholdMultiplier(),
+        npc->personality.healThreshold(),
+        npc->personality.threatAwarenessMultiplier());
+    npc->perception.config.sightRange *= npc->personality.sightRangeMultiplier();
+    npc->perception.config.awarenessDecayRate *= npc->personality.awarenessDecayMultiplier();
+    npc->memory = MemorySystem(static_cast<size_t>(50 * npc->personality.memoryCapacityMultiplier()));
+    npc->trade.applyPersonality(
+        npc->personality.buyMarkupMultiplier(),
+        npc->personality.sellMarkdownMultiplier(),
+        npc->personality.scarcityMultiplier(),
+        npc->personality.relationshipDiscountMultiplier());
     npc->schedule = ScheduleSystem::createInnkeeperSchedule();
 
     npc->combat.stats = {70.0f, 70.0f, 10.0f, 8.0f, 3.0f, 0.05f, {}};
@@ -1320,7 +1402,6 @@ std::shared_ptr<NPC> createDagna(GameWorld& world, std::shared_ptr<Pathfinder> p
     setupItems(npc->trade);
     npc->trade.inventory.addItem(ITEM_BREAD, 30);
     npc->trade.inventory.addItem(ITEM_ALE, 25);
-    npc->trade.buyMarkup = 1.2f;
 
     // Dialog setup
     DialogTree greetTree("greeting");
@@ -1414,6 +1495,15 @@ std::shared_ptr<NPC> createElmund(GameWorld& world, std::shared_ptr<Pathfinder> 
     npc->position = Vec2(34.0f, 21.0f);
     npc->pathfinder = pf;
     npc->factionId = VILLAGE_FACTION;
+    npc->personality = PersonalityTraits::farmer();
+    npc->emotions.applyPersonality(npc->personality);
+    npc->combat.applyPersonality(
+        npc->personality.fleeThresholdMultiplier(),
+        npc->personality.healThreshold(),
+        npc->personality.threatAwarenessMultiplier());
+    npc->perception.config.sightRange *= npc->personality.sightRangeMultiplier();
+    npc->perception.config.awarenessDecayRate *= npc->personality.awarenessDecayMultiplier();
+    npc->memory = MemorySystem(static_cast<size_t>(50 * npc->personality.memoryCapacityMultiplier()));
     npc->schedule = ScheduleSystem::createFarmerSchedule();
 
     npc->combat.stats = {50.0f, 50.0f, 5.0f, 3.0f, 4.0f, 0.02f, {}};
