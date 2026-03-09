@@ -72,6 +72,15 @@ struct Transition {
     int priority = 0;
 };
 
+// ─── State Transition Record ────────────────────────────────────────
+
+struct StateTransitionRecord {
+    StateId from;
+    StateId to;
+    float timestamp = 0.0f;  // game-time when transition occurred
+    float duration = 0.0f;   // time spent in 'from' state
+};
+
 // ─── Finite State Machine ────────────────────────────────────────────
 
 class FSM {
@@ -105,6 +114,8 @@ public:
     }
 
     void update(float dt) {
+        elapsedInState_ += dt;
+
         // Check transitions sorted by priority
         std::vector<Transition*> validTransitions;
         for (auto& t : transitions_) {
@@ -134,6 +145,9 @@ public:
     }
 
     const StateId& currentState() const { return currentState_; }
+    float timeInCurrentState() const { return elapsedInState_; }
+    const std::vector<StateTransitionRecord>& transitionHistory() const { return history_; }
+
     Blackboard& blackboard() { return blackboard_; }
     const Blackboard& blackboard() const { return blackboard_; }
 
@@ -147,8 +161,17 @@ private:
         if (auto* current = getState(currentState_)) {
             current->onExit(blackboard_);
         }
-        auto prev = currentState_;
+
+        // Record transition
+        float gameTime = blackboard_.getOr<float>("_time", 0.0f);
+        history_.push_back({currentState_, to, gameTime, elapsedInState_});
+        if (history_.size() > maxHistory_) {
+            history_.erase(history_.begin());
+        }
+
         currentState_ = to;
+        elapsedInState_ = 0.0f;
+
         if (auto* next = getState(currentState_)) {
             next->onEnter(blackboard_);
         }
@@ -158,6 +181,9 @@ private:
     std::vector<Transition> transitions_;
     StateId currentState_;
     Blackboard blackboard_;
+    float elapsedInState_ = 0.0f;
+    std::vector<StateTransitionRecord> history_;
+    static constexpr size_t maxHistory_ = 10;
 };
 
 } // namespace npc

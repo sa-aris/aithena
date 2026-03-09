@@ -55,10 +55,18 @@ void NPC::update(float dt, GameWorld& world) {
     bb.set<float>("health_pct", combat.stats.healthPercent());
     bb.set<float>("stamina_pct", combat.stats.stamina.percent());
     bb.set<float>("mana_pct", combat.stats.mana.percent());
+    bb.set<float>("time_in_state", fsm.timeInCurrentState());
     bb.set<bool>("in_combat", combat.inCombat);
     bb.set<bool>("has_threats", !threats.empty());
     bb.set<int>("threat_count", combat.threatCount());
     bb.set<bool>("should_flee", combat.shouldFlee());
+
+    // Combat fatigue: prolonged combat (>5 game-minutes = 0.083 hours) drains stamina faster
+    bool combatFatigued = combat.inCombat && fsm.timeInCurrentState() > 0.083f;
+    bb.set<bool>("combat_fatigued", combatFatigued);
+    if (combatFatigued) {
+        combat.stats.stamina.spend(2.0f * dt);  // extra stamina drain
+    }
     bb.set<bool>("has_urgent_need", emotions.hasUrgentNeed());
     bb.set<float>("mood", emotions.getMood());
     bb.set<std::string>("dominant_emotion", emotionToString(emotions.getDominantEmotion()));
