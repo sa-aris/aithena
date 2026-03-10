@@ -25,6 +25,9 @@ target_include_directories(npc_lib PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
+# Required so npc_lib can be linked into the C API shared library
+set_property(TARGET npc_lib PROPERTY POSITION_INDEPENDENT_CODE ON)
+
 # ─── Village Simulation Demo ─────────────────────────────────────────
 
 add_executable(village_sim examples/village_sim.cpp)
@@ -91,6 +94,28 @@ if(NPC_LUA_BRIDGE AND NOT EMSCRIPTEN)
         message(STATUS "Lua 5.4 not found — skipping npc_lua and lua_village."
                        " Install liblua5.4-dev to enable.")
     endif()
+endif()
+
+# ─── C API shared library (optional, for Unity/Unreal/Godot) ─────────
+# Build: cmake -B build -DNPC_SHARED=ON && cmake --build build --target npc_shared
+# On Windows: links with NPC_BUILDING_DLL defined automatically.
+
+option(NPC_SHARED "Build C API shared library (npc_shared)" OFF)
+
+if(NPC_SHARED AND NOT EMSCRIPTEN)
+    add_library(npc_shared SHARED src/npc_capi.cpp)
+    target_include_directories(npc_shared PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+    )
+    target_link_libraries(npc_shared PRIVATE npc_lib)
+    target_compile_definitions(npc_shared PRIVATE NPC_BUILDING_DLL)
+    set_target_properties(npc_shared PROPERTIES
+        OUTPUT_NAME "npc_shared"
+        # Hide all symbols by default; only NPC_API ones are exported
+        C_VISIBILITY_PRESET   hidden
+        CXX_VISIBILITY_PRESET hidden
+        VISIBILITY_INLINES_HIDDEN ON
+    )
 endif()
 
 # ─── WASM target (Emscripten only) ───────────────────────────────────
