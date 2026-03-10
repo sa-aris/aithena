@@ -2,6 +2,7 @@
 
 #include "../core/types.hpp"
 #include "../event/event_system.hpp"
+#include "../quest/quest_system.hpp"
 #include <string>
 #include <vector>
 #include <map>
