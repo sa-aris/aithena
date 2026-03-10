@@ -79,7 +79,9 @@ struct EmotionConfig {
     float emotionIntensifyFactor = 0.5f;
 };
 
+struct NpcSerializer;
 class EmotionSystem {
+    friend struct NpcSerializer;
 public:
     EmotionConfig config_;
 
