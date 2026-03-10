@@ -149,13 +149,13 @@ TEST("Blackboard: keys() returns all keys") {
 TEST("SharedBlackboard: set and get") {
     npc::SharedBlackboard sbb;
     sbb.set<int>("counter", 5, 0.0);
-    ASSERT_EQ(sbb.get<int>("counter"), 5);
+    ASSERT_EQ(sbb.getOr<int>(\"counter\", -1), 5);
 }
 
 TEST("SharedBlackboard: TTL expiry") {
     npc::SharedBlackboard sbb;
     sbb.set<int>("temp", 99, 0.0, 1.0);
-    ASSERT_EQ(sbb.get<int>("temp"), 99);
+    ASSERT_EQ(sbb.getOr<int>(\"temp\", -1), 99);
     sbb.pruneExpired(2.0);
     ASSERT_FALSE(sbb.has("temp"));
 }
@@ -164,7 +164,7 @@ TEST("SharedBlackboard: setIfAbsent does not overwrite") {
     npc::SharedBlackboard sbb;
     sbb.set<int>("x", 10, 0.0);
     sbb.setIfAbsent<int>("x", 20, 0.0);
-    ASSERT_EQ(sbb.get<int>("x"), 10);
+    ASSERT_EQ(sbb.getOr<int>(\"x\", -1), 10);
 }
 
 TEST("SharedBlackboard: versioning increments") {
@@ -172,13 +172,13 @@ TEST("SharedBlackboard: versioning increments") {
     sbb.set<int>("v", 1, 0.0);
     uint64_t v1 = sbb.version("v");
     sbb.set<int>("v", 2, 0.0);
-    ASSERT_GT(sbb.version("v"), v1);
+    ASSERT_GT((int)sbb.version("v"), (int)v1);
 }
 
 TEST("SharedBlackboard: watcher fires on set") {
     npc::SharedBlackboard sbb;
     int fired = 0;
-    auto id = sbb.watch("ns/", [&](const std::string&, const npc::BBEntry&){
+    auto id = sbb.watch("ns/", [&](const std::string&, const std::any&, const npc::BBEntry&){
         ++fired;
     });
     sbb.set<int>("ns/value", 42, 0.0);
@@ -187,7 +187,8 @@ TEST("SharedBlackboard: watcher fires on set") {
 }
 
 TEST("WorldBlackboard: setTime and viewOf") {
-    npc::WorldBlackboard wb;
+    npc::SharedBlackboard _sbb;
+    npc::WorldBlackboard wb(_sbb);
     wb.setTime(12.5f, 0.f);  // (hour, simTime)
     wb.setDay(5, 0.f);
     // faction alert uses uint32_t FactionId
@@ -342,20 +343,20 @@ TEST("SpatialGrid: nearest returns closest") {
 
 TEST("SpatialIndex: nearbyExcept excludes self") {
     npc::SpatialIndex si(10.0f);
-    si.insert(1, {0.f, 0.f});
-    si.insert(2, {1.f, 0.f});
-    auto hits = si.nearbyExcept(1u, {0.f, 0.f}, 5.0f);
+    si.update(1, {0.f, 0.f});
+    si.update(2, {1.f, 0.f});
+    auto hits = si.nearbyExcept({0.f, 0.f}, 5.0f, 1u);
     ASSERT_EQ(hits.size(), std::size_t(1));
-    ASSERT_EQ(hits[0].id, 2u);
+    ASSERT_EQ(hits[0], 2u);
 }
 
 TEST("SpatialIndex: findClusters groups close entities") {
     npc::SpatialIndex si(5.0f);
-    si.insert(1, {0.f,   0.f});
-    si.insert(2, {1.f,   0.f});
-    si.insert(3, {0.f,   1.f});
-    si.insert(4, {100.f, 100.f});
-    si.insert(5, {101.f, 100.f});
+    si.update(1, {0.f,   0.f});
+    si.update(2, {1.f,   0.f});
+    si.update(3, {0.f,   1.f});
+    si.update(4, {100.f, 100.f});
+    si.update(5, {101.f, 100.f});
     ASSERT_GE(si.findClusters(5.0f).size(), std::size_t(2));
 }
 
@@ -436,15 +437,15 @@ TEST("FactionSystem: addFaction and faction() accessor") {
 TEST("FactionSystem: default stance is Peace") {
     npc::FactionSystem fs;
     fs.addFaction(1u,"A"); fs.addFaction(2u,"B");
-    ASSERT_EQ(fs.getStance(1u,2u), npc::FactionStance::Peace);
+    ASSERT_EQ(static_cast<int>(fs.getStance(1u,2u)), static_cast<int>(npc::FactionStance::Peace));
 }
 
 TEST("FactionSystem: declareWar sets stance") {
     npc::FactionSystem fs;
     fs.addFaction(1u,"A"); fs.addFaction(2u,"B");
     fs.declareWar(1u, 2u, "resources", 0.f);
-    ASSERT_EQ(fs.getStance(1u,2u), npc::FactionStance::War);
-    ASSERT_EQ(fs.getStance(2u,1u), npc::FactionStance::War);
+    ASSERT_EQ(static_cast<int>(fs.getStance(1u,2u)), static_cast<int>(npc::FactionStance::War));
+    ASSERT_EQ(static_cast<int>(fs.getStance(2u,1u)), static_cast<int>(npc::FactionStance::War));
 }
 
 TEST("FactionSystem: war is symmetric via areHostile") {
@@ -459,7 +460,7 @@ TEST("FactionSystem: formAlliance sets stance") {
     npc::FactionSystem fs;
     fs.addFaction(1u,"A"); fs.addFaction(2u,"B");
     fs.formAlliance(1u, 2u, "", 0.f);
-    ASSERT_EQ(fs.getStance(1u,2u), npc::FactionStance::Alliance);
+    ASSERT_EQ(static_cast<int>(fs.getStance(1u,2u)), static_cast<int>(npc::FactionStance::Alliance));
     ASSERT_TRUE(fs.areAllied(1u,2u));
 }
 
@@ -468,7 +469,7 @@ TEST("FactionSystem: declarePeace creates truce") {
     fs.addFaction(1u,"A"); fs.addFaction(2u,"B");
     fs.declareWar(1u, 2u, "", 0.f);
     fs.declarePeace(1u, 2u, "", 0.f, 100.f);
-    ASSERT_EQ(fs.getStance(1u,2u), npc::FactionStance::Truce);
+    ASSERT_EQ(static_cast<int>(fs.getStance(1u,2u)), static_cast<int>(npc::FactionStance::Truce));
 }
 
 TEST("FactionSystem: truce expires to Peace") {
@@ -477,7 +478,7 @@ TEST("FactionSystem: truce expires to Peace") {
     fs.declareWar(1u, 2u, "", 0.f);
     fs.declarePeace(1u, 2u, "", 0.f, 50.f);
     fs.update(60.f);
-    ASSERT_EQ(fs.getStance(1u,2u), npc::FactionStance::Peace);
+    ASSERT_EQ(static_cast<int>(fs.getStance(1u,2u)), static_cast<int>(npc::FactionStance::Peace));
 }
 
 TEST("FactionSystem: alliance cascade on war") {
@@ -485,7 +486,7 @@ TEST("FactionSystem: alliance cascade on war") {
     fs.addFaction(1u,"A"); fs.addFaction(2u,"B"); fs.addFaction(5u,"AllyB");
     fs.formAlliance(2u, 5u, "", 0.f);
     fs.declareWar(1u, 2u, "", 0.f, true);
-    ASSERT_EQ(fs.getStance(1u,5u), npc::FactionStance::War);
+    ASSERT_EQ(static_cast<int>(fs.getStance(1u,5u)), static_cast<int>(npc::FactionStance::War));
 }
 
 TEST("FactionSystem: vassal joins overlord war") {
@@ -493,7 +494,7 @@ TEST("FactionSystem: vassal joins overlord war") {
     fs.addFaction(6u,"Lord"); fs.addFaction(7u,"Vassal"); fs.addFaction(8u,"Enemy");
     fs.formVassal(7u, 6u, "", 0.f);
     fs.declareWar(6u, 8u, "", 0.f, true);
-    ASSERT_EQ(fs.getStance(7u,8u), npc::FactionStance::War);
+    ASSERT_EQ(static_cast<int>(fs.getStance(7u,8u)), static_cast<int>(npc::FactionStance::War));
 }
 
 TEST("FactionSystem: wouldDefend direct ally") {
@@ -770,7 +771,8 @@ TEST("Integration: saved event remembered in dialogue") {
 }
 
 TEST("Integration: WorldBlackboard faction key format") {
-    npc::WorldBlackboard wb;
+    npc::SharedBlackboard _sbb2;
+    npc::WorldBlackboard wb(_sbb2);
     wb.setFactionAlert(42u, true, 0.f);
     auto view = wb.viewOf("faction/", 0.f);
     ASSERT_TRUE(view.has("faction/42/alert"));
