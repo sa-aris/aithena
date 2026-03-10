@@ -193,7 +193,7 @@ public:
 
         prob = std::clamp(prob, 0.05f, 0.95f);
 
-        float roll = rng.randomFloat(0.0f, 1.0f);
+        float roll = rng.range(0.0f, 1.0f);
         bool  success  = roll <= prob;
         bool  critSucc = roll >= cfg.critSuccessRoll;
         bool  critFail = roll <= cfg.critFailRoll;
