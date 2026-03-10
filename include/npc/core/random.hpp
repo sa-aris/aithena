@@ -41,4 +41,6 @@ private:
     std::mt19937 engine_;
 };
 
+using RandomGenerator = Random;
+
 } // namespace npc
