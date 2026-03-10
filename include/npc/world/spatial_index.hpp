@@ -184,6 +184,7 @@ public:
 
     size_t entityCount() const { return positions_.size(); }
     size_t cellCount()   const { return cells_.size(); }
+    const std::unordered_map<EntityId, Vec2>& positions() const { return positions_; }
     float  cellSize()    const { return cellSize_; }
 
     // Average entities-per-occupied-cell (load factor indicator)
@@ -516,9 +517,11 @@ public:
     };
 
     std::vector<Cluster> findClusters(float clusterRadius) const {
-        // Build a list of all known positions
-        std::vector<SpatialHit> all = grid_.queryRect(
-            AABB{{-1e9f,-1e9f},{1e9f,1e9f}});
+        // Build a list of all known positions directly from grid (avoid infinite queryRect)
+        std::vector<SpatialHit> all;
+        all.reserve(grid_.positions().size());
+        for (auto& [id, p] : grid_.positions())
+            all.push_back({id, p, 0.f});
 
         std::vector<bool> visited(all.size(), false);
         std::vector<Cluster> clusters;
