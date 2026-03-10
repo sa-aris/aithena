@@ -1,6 +1,6 @@
 # NPC Behavior System
 
-[![CI](https://github.com/sa-aris/npc-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/sa-aris/npc-engine/actions/workflows/ci.yml)
+[![CI](https://github.com/sa-aris/aithena/actions/workflows/ci.yml/badge.svg)](https://github.com/sa-aris/aithena/actions/workflows/ci.yml)
 [![Live Demo](https://img.shields.io/badge/demo-GitHub_Pages-brightgreen)](https://sa-aris.github.io/NPC/)
 [![C++17](https://img.shields.io/badge/C%2B%2B-17-blue.svg)](https://en.cppreference.com/w/cpp/17)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -248,8 +248,8 @@ Every NPC is a composition of systems. No inheritance hierarchy, no virtual disp
 ## Building
 
 ```bash
-git clone https://github.com/sa-aris/npc-engine.git
-cd npc-engine
+git clone https://github.com/sa-aris/aithena.git
+cd aithena
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
 ```
