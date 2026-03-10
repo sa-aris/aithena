@@ -127,7 +127,9 @@ struct Skill {
 };
 
 // ─── SkillSystem ──────────────────────────────────────────────────────────────
+struct NpcSerializer;
 class SkillSystem {
+    friend struct NpcSerializer;
 public:
     explicit SkillSystem(EntityId owner = INVALID_ENTITY)
         : owner_(owner) {
