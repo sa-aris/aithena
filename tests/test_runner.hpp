@@ -159,7 +159,7 @@ inline int run_all(bool verbose = false) {
     auto yellow = [&](const std::string& s){ return color ? "\033[33m" + s + "\033[0m" : s; };
     auto bold   = [&](const std::string& s){ return color ? "\033[1m"  + s + "\033[0m" : s; };
 
-    std::cout << bold("Running " + std::to_string(tests.size()) + " tests...\n");
+    std::cout << bold("Running " + std::to_string(tests.size()) + " tests...\n") << std::flush;
 
     for (auto& tc : tests) {
         if (verbose)
