@@ -54,6 +54,7 @@ if(EMSCRIPTEN)
     target_include_directories(npc_wasm PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/include
     )
+    target_link_libraries(npc_wasm PRIVATE npc_lib)
     target_compile_options(npc_wasm PRIVATE -O2)
     target_link_options(npc_wasm PRIVATE
         "-sEXPORTED_FUNCTIONS=[_npc_init,_npc_step,_npc_is_complete,_malloc,_free]"
