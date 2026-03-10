@@ -20,6 +20,7 @@
 #include "schedule/schedule_system.hpp"
 #include "navigation/pathfinding.hpp"
 #include "personality/personality_traits.hpp"
+#include "quest/quest_system.hpp"
 
 #include <string>
 #include <vector>
@@ -34,43 +35,47 @@ class GameWorld;
 class NPC : public std::enable_shared_from_this<NPC> {
 public:
     // ─── Identity ────────────────────────────────────────────────────
-    EntityId id;
+    EntityId    id;
     std::string name;
-    NPCType type;
-    FactionId factionId = NO_FACTION;
+    NPCType     type;
+    FactionId   factionId = NO_FACTION;
 
-    // ─── Personality ──────────────────────────────────────────────────
+    // ─── Personality ─────────────────────────────────────────────────
     PersonalityTraits personality;
 
     // ─── Position ────────────────────────────────────────────────────
-    Vec2 position;
-    Vec2 facing{1.0f, 0.0f};
-    float moveSpeed = 3.0f; // units per game hour
+    Vec2  position;
+    Vec2  facing{1.0f, 0.0f};
+    float moveSpeed = 3.0f;
 
     // ─── Systems ─────────────────────────────────────────────────────
-    FSM fsm;
-    UtilityAI utilityAI;
-    BehaviorTree combatBT;
-    BehaviorTree socializeBT;
+    FSM              fsm;
+    UtilityAI        utilityAI;
+    BehaviorTree     combatBT;
+    BehaviorTree     socializeBT;
     PerceptionSystem perception;
-    MemorySystem memory{50};
-    EmotionSystem emotions;
-    CombatSystem combat;
-    DialogSystem dialog;
-    TradeSystem trade;
-    ScheduleSystem schedule;
+    MemorySystem     memory{50};
+    EmotionSystem    emotions;
+    CombatSystem     combat;
+    DialogSystem     dialog;
+    TradeSystem      trade;
+    ScheduleSystem   schedule;
     std::shared_ptr<Pathfinder> pathfinder;
 
+    // ─── Quest ───────────────────────────────────────────────────────
+    // Quests this NPC can offer (registered by the world/scenario)
+    std::vector<std::string> offeredQuestIds;
+
     // ─── AI Control ──────────────────────────────────────────────────
-    bool useUtilityAI = false;
-    bool useGOAP = false;
+    bool      useUtilityAI = false;
+    bool      useGOAP      = false;
     GOAPAgent goap;
 
     // ─── Movement state ──────────────────────────────────────────────
     std::vector<Vec2> currentPath;
-    size_t pathIndex = 0;
-    Vec2 moveTarget;
-    bool isMoving = false;
+    size_t            pathIndex = 0;
+    Vec2              moveTarget;
+    bool              isMoving  = false;
 
     // ─── Logging ─────────────────────────────────────────────────────
     bool verbose = true;
@@ -85,12 +90,12 @@ public:
     void moveTo(Vec2 target) {
         if (pathfinder) {
             currentPath = pathfinder->smoothPath(pathfinder->findPath(position, target));
-            pathIndex = 0;
-            moveTarget = target;
-            isMoving = !currentPath.empty();
+            pathIndex   = 0;
+            moveTarget  = target;
+            isMoving    = !currentPath.empty();
         } else {
             moveTarget = target;
-            isMoving = true;
+            isMoving   = true;
             currentPath.clear();
         }
     }
@@ -98,20 +103,17 @@ public:
     void updateMovement(float dt) {
         if (!isMoving) return;
 
-        Vec2 target;
-        if (!currentPath.empty() && pathIndex < currentPath.size()) {
-            target = currentPath[pathIndex];
-        } else {
-            target = moveTarget;
-        }
+        Vec2 target = (!currentPath.empty() && pathIndex < currentPath.size())
+                      ? currentPath[pathIndex]
+                      : moveTarget;
 
-        Vec2 dir = target - position;
+        Vec2  dir  = target - position;
         float dist = dir.length();
 
         if (dist < 0.5f) {
             position = target;
             if (!currentPath.empty() && pathIndex < currentPath.size() - 1) {
-                pathIndex++;
+                ++pathIndex;
             } else {
                 isMoving = false;
                 currentPath.clear();
@@ -122,7 +124,7 @@ public:
         Vec2 move = dir.normalized() * moveSpeed * dt;
         if (move.length() > dist) move = dir;
         position += move;
-        facing = dir.normalized();
+        facing    = dir.normalized();
     }
 
     bool isAtLocation(Vec2 loc, float threshold = 2.0f) const {
@@ -155,9 +157,29 @@ public:
         }
     }
 
+    // Quest events (called by QuestManager callbacks or world logic)
+    void onQuestCompleted(const QuestCompletedEvent& e) {
+        if (e.takerId != id && e.giverId != id) return;
+        memory.addMemory(MemoryType::Interaction,
+            "Quest completed: " + e.questId, 0.4f, std::nullopt, 0.6f);
+    }
+
+    void onQuestFailed(const QuestFailedEvent& e) {
+        if (e.takerId != id) return;
+        memory.addMemory(MemoryType::Interaction,
+            "Quest failed: " + e.questId + " (" + e.reason + ")", -0.3f,
+            std::nullopt, 0.5f);
+    }
+
     void subscribeToEvents(EventBus& events) {
         events.subscribe<CombatEvent>([this](const CombatEvent& e) { onCombatEvent(e); });
-        events.subscribe<WorldEvent>([this](const WorldEvent& e) { onWorldEvent(e); });
+        events.subscribe<WorldEvent> ([this](const WorldEvent& e)  { onWorldEvent(e); });
+        events.subscribe<QuestCompletedEvent>([this](const QuestCompletedEvent& e) {
+            onQuestCompleted(e);
+        });
+        events.subscribe<QuestFailedEvent>([this](const QuestFailedEvent& e) {
+            onQuestFailed(e);
+        });
     }
 
     // ─── Info ────────────────────────────────────────────────────────
@@ -165,29 +187,28 @@ public:
         std::ostringstream ss;
         ss << name << " (" << npcTypeToString(type) << ")"
            << " at " << position.toString()
-           << " | HP: " << static_cast<int>(combat.stats.health)
-           << "/" << static_cast<int>(combat.stats.maxHealth)
+           << " | HP: "  << static_cast<int>(combat.stats.health)
+           << "/"  << static_cast<int>(combat.stats.maxHealth)
            << " | STA: " << static_cast<int>(combat.stats.stamina.current)
-           << "/" << static_cast<int>(combat.stats.stamina.max);
-        if (combat.stats.mana.max > 0.0f) {
+           << "/"  << static_cast<int>(combat.stats.stamina.max);
+        if (combat.stats.mana.max > 0.0f)
             ss << " | MP: " << static_cast<int>(combat.stats.mana.current)
-               << "/" << static_cast<int>(combat.stats.mana.max);
-        }
+               << "/"  << static_cast<int>(combat.stats.mana.max);
         ss << " | State: " << fsm.currentState();
-        if (useGOAP && goap.hasPlan()) {
+        if (useGOAP && goap.hasPlan())
             ss << " | Goal: " << goap.currentGoalName()
                << " [" << goap.currentActionName() << "]";
-        }
-        ss << " | Mood: " << emotions.getMoodString()
+        ss << " | Mood: "   << emotions.getMoodString()
            << " | Traits: " << personality.traitSummary();
+        if (!offeredQuestIds.empty())
+            ss << " | Quests: " << offeredQuestIds.size();
         return ss.str();
     }
 
     void log(const std::string& timeStr, const std::string& msg) const {
-        if (verbose) {
+        if (verbose)
             std::cout << "[" << timeStr << "] " << name
                       << " (" << npcTypeToString(type) << "): " << msg << "\n";
-        }
     }
 };
 
