@@ -1,13 +1,28 @@
 # NPC Behavior System
 
 [![CI](https://github.com/sa-aris/NPC/actions/workflows/ci.yml/badge.svg)](https://github.com/sa-aris/NPC/actions/workflows/ci.yml)
+[![Live Demo](https://img.shields.io/badge/demo-GitHub_Pages-brightgreen)](https://sa-aris.github.io/NPC/)
 [![C++17](https://img.shields.io/badge/C%2B%2B-17-blue.svg)](https://en.cppreference.com/w/cpp/17)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Header-only](https://img.shields.io/badge/header--only-yes-green.svg)](#integration)
+[![WebAssembly](https://img.shields.io/badge/WebAssembly-WASM-654FF0)](https://webassembly.org/)
 
 A self-contained NPC AI framework for games, written in C++17. Drop the `include/` directory into any project and you get 20 interconnected systems — from low-level pathfinding and spatial queries to high-level faction politics, relationship history, and narrative-aware dialogue hooks.
 
 No dependencies. No engine lock-in. No runtime overhead you didn't ask for.
+
+---
+
+## Live Demo
+
+**[→ sa-aris.github.io/NPC](https://sa-aris.github.io/NPC/)** — compiled to WebAssembly via Emscripten, runs entirely in the browser.
+
+A five-NPC village simulation plays out in real time. The demo visualises:
+- Emotional state of each NPC with colour-coded contagion spreading between nearby characters
+- Memory decay as NPCs gradually forget events (strength bars update live)
+- Social influence chains as rumours and beliefs propagate across the social graph hop by hop
+
+Controls: Play/Pause, Reset, Speed ×1–×8.
 
 ---
 
@@ -67,12 +82,18 @@ auto bt = npc::BehaviorTreeBuilder()
 
 **Perception** — Configurable sight cone (angle + range), hearing radius with noise levels, and line-of-sight checking via the pathfinder's Bresenham implementation. Outputs `PerceivedEntity` records with staleness tracking — NPCs remember where they last saw a threat even after it disappears.
 
-**Memory** — Time-stamped episodic memories with emotional impact scores and importance weights. Memories decay based on importance (trivial events fade quickly, traumatic ones persist). Supports gossip propagation: an NPC can receive a memory second-hand with trust-based reliability degradation.
+**Memory** — Time-stamped episodic memories with emotional impact scores and importance weights. Memories decay based on importance (trivial events fade quickly, traumatic ones persist). Three decay stages emit narrative events: *Fading* (strength < 0.9), *Nearly Forgotten* (< 0.35), and *Forgotten* (0.0). Hearsay memories received through gossip decay four times faster than first-hand observations. Supports gossip propagation: an NPC can receive a memory second-hand with trust-based reliability degradation.
 
 ```cpp
 // Heard from someone who heard from someone else
 memory.receiveGossip(combatMemory, tellerId, tellerTrust, simTime);
-// Reliability degrades at each hop: reliability *= trust * 0.85^hopCount
+// Hearsay decays 4× faster; reliability degrades per hop
+
+// Drain narrative events each frame:
+for (auto& evt : npc.memory.drainFadeEvents()) {
+    if (evt.stage == MemoryFadeStage::Forgotten)
+        fmt::print("{} no longer remembers: {}\n", npc.name, evt.snapshot.description);
+}
 ```
 
 ### Emotion & Needs
@@ -81,7 +102,7 @@ memory.receiveGossip(combatMemory, tellerId, tellerTrust, simTime);
 
 **Needs** — Sims-style need bars (hunger, thirst, sleep, social, fun, safety, comfort) that deplete over time and drive schedule priorities. An NPC with critically low safety need will refuse to leave a building regardless of their assigned work schedule.
 
-**Emotional Contagion** — NPCs within hearing range share emotional states scaled by personality empathy coefficient and proximity. A frightened NPC running through a market can trigger a cascade of anxiety in nearby villagers.
+**Emotional Contagion** — NPCs within hearing range share emotional states scaled by personality empathy coefficient and proximity. A frightened NPC running through a market can trigger a cascade of anxiety in nearby villagers. The terminal demo renders contagion live with ANSI-coloured intensity bars and a per-step propagation table.
 
 ### Navigation
 
@@ -128,6 +149,18 @@ rs.narrative("merchant", "hero", now);
 // → "merchant feels Close Friend toward hero [72/100, High Trust].
 //    Notably, hero saved merchant (1 day ago).
 //    Recent interactions: hero gifted merchant (3h ago); hero helped merchant (5h ago)."
+```
+
+**Social Influence Chains** — Beliefs and rumours propagate organically through the social graph. An `InfluenceMessage` starts with an originator, a topic, a charge (−1 to +1), and a reliability of 1.0. Each hop degrades reliability by the receiver's empathy coefficient; charges mutate as the message passes through each personality. Below reliability 0.30 the content distorts. The system records the full chain (`"Alaric ⟶ Brina ⟶ Dagna ⟶ Gareth"`) and emits a hop record for every transfer — useful for debugging propaganda spread or building in-game rumour mechanics.
+
+```cpp
+g_influence.seed({msgId, "wolves at the gate", originatorId, "Alaric",
+                  /*charge=*/-0.85f, /*reliability=*/1.0f, simTime});
+
+// Each frame, pairs within social range probabilistically propagate:
+// reliability *= receiver.personality.empathyMultiplier()
+// charge      *= receiver.personality.empathyMultiplier()
+// if reliability < 0.30 → charge gets random distortion
 ```
 
 **Group Behavior** — Formation system (line, wedge, circle, column) with slot assignment, leader-follower command propagation, and tactical roles (Leader, Vanguard, Flanker, Support, Archer). Group morale aggregates individual emotional states and feeds back into member behavior.
@@ -225,7 +258,11 @@ cmake --build build --parallel
 ./build/village_sim
 ```
 
-Simulates a medieval village with six NPCs over one full day. Guards patrol, merchants trade, the blacksmith works her forge, and a wolf pack attacks at dusk — triggering combat, emotional responses, shared fear, and persistent memories that influence the next day's behavior.
+Simulates a medieval village with six NPCs over one full day. Guards patrol, merchants trade, the blacksmith works her forge, and a wolf pack attacks at dusk — triggering combat, emotional responses, and shared fear. The simulation renders:
+
+- **Emotion contagion table** — ANSI-coloured intensity bars updated each in-game hour, showing which NPCs are spreading their emotional state to nearby characters
+- **Memory decay narrative** — stage-by-stage output as memories fade (`[FADING]`, `[NEARLY FORGOTTEN]`, `[FORGOTTEN]`) with end-of-day memory strength bars per NPC
+- **Influence chain log** — hop-by-hop propagation of three seeded rumours (strange tracks, wolf attack, heroic defence), printed in full with reliability and charge at each step
 
 ### Run the tests
 
@@ -372,7 +409,7 @@ NPC/
 │   ├── event/          event_system — typed pub-sub bus
 │   ├── ai/             fsm, behavior_tree, utility_ai, goap, blackboard, shared_blackboard
 │   ├── perception/     sight cone, hearing, line-of-sight
-│   ├── memory/         episodic memory, decay, gossip
+│   ├── memory/         episodic memory, decay stages, gossip
 │   ├── emotion/        emotion state, needs, contagion
 │   ├── personality/    trait system, multipliers
 │   ├── combat/         threat model, abilities, resources
@@ -382,7 +419,8 @@ NPC/
 │   ├── quest/          definition, tracking, events
 │   ├── skill/          XP, levels, perks, bonuses
 │   ├── navigation/     A*, NavRegions, PathCache, WaypointGraph, steering
-│   ├── social/         faction_system, relationship_system, group_behavior
+│   ├── social/         faction_system, relationship_system, group_behavior,
+│   │                   influence_chain — rumour propagation, hop recording
 │   ├── world/          world, time, weather, spatial_index, lod_system,
 │   │                   simulation_manager, world_event_manager
 │   ├── threading/      thread_safety, task_scheduler, parallel_ticker
@@ -390,12 +428,18 @@ NPC/
 │   └── npc.hpp         main NPC composite class
 ├── src/
 │   ├── npc.cpp
-│   └── world/world.cpp
+│   ├── world/world.cpp
+│   └── wasm_api.cpp    — Emscripten C exports (npc_init / npc_step / npc_is_complete)
+├── web/
+│   └── index.html      — single-file browser demo (dark terminal theme, WebAssembly)
 ├── examples/
-│   └── village_sim.cpp — full medieval village demo (~2400 lines)
-└── tests/
-    ├── test_runner.hpp — zero-dependency test framework
-    └── run_tests.cpp   — test suite (~75 tests)
+│   └── village_sim.cpp — full medieval village demo with contagion/decay/influence output
+├── tests/
+│   ├── test_runner.hpp — zero-dependency test framework
+│   └── run_tests.cpp   — test suite (~75 tests)
+└── .github/workflows/
+    ├── ci.yml          — GCC 12 + Clang 15 + macOS matrix
+    └── pages.yml       — Emscripten WASM build + GitHub Pages deploy
 ```
 
 ---
