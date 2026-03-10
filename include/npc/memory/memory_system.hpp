@@ -41,6 +41,23 @@ struct Memory {
     int   dayCreated       = 1;
 };
 
+// ─── Memory Fade Stages ───────────────────────────────────────────────────────
+// Emitted when a memory's currentStrength crosses a threshold downward.
+// Fading          → strength drops below 0.9  (memory is weakening)
+// NearlyForgotten → strength drops below 0.35 (barely recalled)
+// Forgotten       → strength reaches  0.0     (erased from mind)
+enum class MemoryFadeStage {
+    Fading,
+    NearlyForgotten,
+    Forgotten
+};
+
+// Snapshot of a memory at the moment it crossed a fade threshold.
+struct MemoryFadeEvent {
+    MemoryFadeStage stage;
+    Memory          snapshot; // copy at threshold crossing
+};
+
 // ─── Gossip Constants ─────────────────────────────────────────────────────────
 namespace gossip {
     constexpr float BASE_HOP_DECAY         = 0.75f;
@@ -103,6 +120,8 @@ public:
         gm.timestamp       = currentTime;
         gm.currentStrength = 1.0f;
         gm.dayCreated      = currentDay;
+        // Hearsay fades 4× faster than first-hand observation
+        gm.decayRate       = sourceMemory.decayRate * 4.0f;
 
         if (newRel < gossip::DISTORTION_THRESHOLD) {
             gm.emotionalImpact *= (newRel / gossip::DISTORTION_THRESHOLD);
@@ -181,8 +200,18 @@ public:
     // ── Time update ───────────────────────────────────────────────────────────
     void update(float dt) {
         for (auto& m : memories_) {
+            float prev        = m.currentStrength;
             m.currentStrength -= m.decayRate * dt;
             m.currentStrength  = std::max(0.0f, m.currentStrength);
+
+            // Detect downward threshold crossings and emit fade events.
+            // Only one event per step (highest priority stage).
+            if      (prev > 0.0f  && m.currentStrength <= 0.0f)
+                fadeEvents_.push_back({MemoryFadeStage::Forgotten,       m});
+            else if (prev > 0.35f && m.currentStrength <= 0.35f)
+                fadeEvents_.push_back({MemoryFadeStage::NearlyForgotten, m});
+            else if (prev > 0.9f  && m.currentStrength <= 0.9f)
+                fadeEvents_.push_back({MemoryFadeStage::Fading,          m});
         }
         memories_.erase(
             std::remove_if(memories_.begin(), memories_.end(),
@@ -190,6 +219,13 @@ public:
                     return m.currentStrength <= 0.0f && m.importance < 0.7f;
                 }),
             memories_.end());
+    }
+
+    // Drain and return all pending fade events since the last call.
+    std::vector<MemoryFadeEvent> drainFadeEvents() {
+        std::vector<MemoryFadeEvent> out;
+        out.swap(fadeEvents_);
+        return out;
     }
 
     // ── Standard recall ───────────────────────────────────────────────────────
@@ -263,8 +299,9 @@ private:
         memories_.erase(it);
     }
 
-    std::vector<Memory> memories_;
-    size_t maxMemories_;
+    std::vector<Memory>          memories_;
+    size_t                       maxMemories_;
+    std::vector<MemoryFadeEvent> fadeEvents_;
 };
 
 } // namespace npc

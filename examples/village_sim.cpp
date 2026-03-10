@@ -75,6 +75,7 @@ void logRelationship(const std::string& timeStr, const std::string& a,
                      const PersonalityTraits* traitsB = nullptr);
 void processEmotionContagion(GameWorld& world);
 void printEmotionContagionTable(const std::string& timeStr, GameWorld& world);
+void processMemoryDecayNarrative(const std::string& timeStr, GameWorld& world);
 
 // =======================================================================
 //  MAIN
@@ -194,6 +195,9 @@ int main() {
 
         // --- Emotion contagion (proximity-based spreading) ---
         processEmotionContagion(world);
+
+        // --- Memory decay narrative ---
+        processMemoryDecayNarrative(world.time().formatClock(), world);
     }
 
     // =================================================================
@@ -232,6 +236,46 @@ int main() {
             }
         }
         std::cout << "\n";
+
+        // Memory decay status
+        {
+            const auto& mems = npc->memory.allMemories();
+            if (!mems.empty()) {
+                std::cout << "    Memory decay:\n";
+                // Sort by strength ascending so weakest show first
+                std::vector<const Memory*> sorted;
+                for (const auto& m : mems) sorted.push_back(&m);
+                std::sort(sorted.begin(), sorted.end(),
+                    [](const Memory* a, const Memory* b){
+                        return a->currentStrength < b->currentStrength; });
+                int shown2 = 0;
+                for (const auto* m : sorted) {
+                    if (shown2++ >= 5) break;
+                    float s = m->currentStrength;
+                    const char* col;
+                    const char* stage;
+                    if (s > 0.9f)       { col = "\033[0;37m";  stage = "intact";           }
+                    else if (s > 0.35f) { col = "\033[0;33m";  stage = "fading";            }
+                    else if (s > 0.0f)  { col = "\033[1;35m";  stage = "nearly forgotten";  }
+                    else                { col = "\033[0;90m";   stage = "forgotten";         }
+                    char bar[6]; bar[5] = '\0';
+                    int filled = static_cast<int>(std::round(s * 5.0f));
+                    for (int i = 0; i < 5; ++i)
+                        bar[i] = (i < filled) ? '\xe2' : '\xe2'; // placeholder
+                    // Build bar manually
+                    std::string sbar;
+                    int f2 = std::max(0, std::min(5, static_cast<int>(std::round(s * 5.0f))));
+                    for (int i = 0; i < f2; ++i)     sbar += "\u2588";
+                    for (int i = f2; i < 5; ++i)     sbar += "\u2591";
+
+                    std::string desc2 = m->description;
+                    if (desc2.size() > 40) desc2 = desc2.substr(0, 37) + "...";
+                    std::cout << "      " << col << sbar << " [" << stage << "] "
+                              << "\"" << desc2 << "\""
+                              << "\033[0m" << "\n";
+                }
+            }
+        }
 
         // Recent memories
         auto memories = npc->memory.allMemories();
@@ -366,6 +410,94 @@ void printEmotionContagionTable(const std::string& timeStr, GameWorld& world) {
     }
 
     std::cout << "  \033[1;37m└──────────────┴────────────┴───────┴────────────────────────────┘\033[0m\n\n";
+}
+
+// =======================================================================
+//  MEMORY DECAY NARRATIVE
+// =======================================================================
+
+void processMemoryDecayNarrative(const std::string& timeStr, GameWorld& world) {
+    for (const auto& npc : world.npcs()) {
+        if (npc->type == NPCType::Enemy) continue;
+
+        auto events = npc->memory.drainFadeEvents();
+        for (const auto& ev : events) {
+            const Memory& m = ev.snapshot;
+
+            // Truncate long descriptions for readability
+            std::string desc = m.description;
+            if (desc.size() > 48) desc = desc.substr(0, 45) + "...";
+
+            // Source tag
+            const char* srcTag = (m.source == MemorySource::Hearsay)
+                                 ? " \033[0;90m(hearsay)\033[0m" : "";
+
+            switch (ev.stage) {
+                case MemoryFadeStage::Fading: {
+                    // Yellow italic — something is slipping away
+                    std::cout << "[" << timeStr << "] "
+                              << "\033[0;33m"
+                              << npc->name << " finds the memory of \""
+                              << desc << "\" growing hazy."
+                              << "\033[0m" << srcTag << "\n";
+                    // Entity-specific message
+                    if (m.entityId.has_value()) {
+                        for (const auto& other : world.npcs()) {
+                            if (other->id == *m.entityId) {
+                                std::cout << "  \033[0;33m"
+                                          << "  \u2514 Their recollection of "
+                                          << other->name << " is starting to blur."
+                                          << "\033[0m\n";
+                                break;
+                            }
+                        }
+                    }
+                    break;
+                }
+                case MemoryFadeStage::NearlyForgotten: {
+                    // Magenta — barely a trace left
+                    std::cout << "[" << timeStr << "] "
+                              << "\033[1;35m"
+                              << npc->name << " can barely recall \""
+                              << desc << "\"."
+                              << "\033[0m" << srcTag << "\n";
+                    if (m.entityId.has_value()) {
+                        for (const auto& other : world.npcs()) {
+                            if (other->id == *m.entityId) {
+                                std::cout << "  \033[1;35m"
+                                          << "  \u2514 " << other->name
+                                          << "'s face is almost unfamiliar to them now."
+                                          << "\033[0m\n";
+                                break;
+                            }
+                        }
+                    }
+                    break;
+                }
+                case MemoryFadeStage::Forgotten: {
+                    // Dark grey strikethrough-style — gone
+                    std::cout << "[" << timeStr << "] "
+                              << "\033[0;90m"
+                              << npc->name << " has forgotten: \""
+                              << desc << "\"."
+                              << "\033[0m" << srcTag << "\n";
+                    if (m.entityId.has_value()) {
+                        for (const auto& other : world.npcs()) {
+                            if (other->id == *m.entityId) {
+                                std::cout << "  \033[0;90m"
+                                          << "  \u2514 " << npc->name
+                                          << " no longer recognizes "
+                                          << other->name << "."
+                                          << "\033[0m\n";
+                                break;
+                            }
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+    }
 }
 
 // =======================================================================
