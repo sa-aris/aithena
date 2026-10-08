@@ -201,7 +201,7 @@ public:
     }
 
 private:
-    using CellKey = int64_t;
+    using CellKey = uint64_t;
 
     CellKey posToKey(Vec2 p) const {
         int32_t cx = static_cast<int32_t>(std::floor(p.x * invCell_));
@@ -209,8 +209,9 @@ private:
         return cellKey(cx, cy);
     }
     static CellKey cellKey(int32_t cx, int32_t cy) {
-        return (static_cast<int64_t>(cx) << 32) |
-               static_cast<uint64_t>(static_cast<uint32_t>(cy));
+        const auto x = static_cast<uint64_t>(static_cast<uint32_t>(cx));
+        const auto y = static_cast<uint64_t>(static_cast<uint32_t>(cy));
+        return (x << 32U) | y;
     }
 
     void removeFromCell(EntityId id, CellKey key) {

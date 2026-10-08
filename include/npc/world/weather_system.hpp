@@ -358,7 +358,7 @@ private:
 
         float total = 0.0f;
         for (const auto& r : options) total += r.weight;
-        float roll = rng.randomFloat(0.0f, total);
+        float roll = rng.range(0.0f, total);
         float acc  = 0.0f;
         for (const auto& r : options) {
             acc += r.weight;
@@ -369,15 +369,15 @@ private:
 
     static float randomDuration(WeatherType type, RandomGenerator& rng) {
         switch (type) {
-            case WeatherType::Clear:     return rng.randomFloat(4.0f, 12.0f);
-            case WeatherType::Cloudy:    return rng.randomFloat(2.0f,  8.0f);
-            case WeatherType::Rain:      return rng.randomFloat(1.5f,  5.0f);
-            case WeatherType::HeavyRain: return rng.randomFloat(1.0f,  3.0f);
-            case WeatherType::Storm:     return rng.randomFloat(0.5f,  2.0f);
-            case WeatherType::Snow:      return rng.randomFloat(2.0f,  8.0f);
-            case WeatherType::Blizzard:  return rng.randomFloat(1.0f,  4.0f);
-            case WeatherType::Fog:       return rng.randomFloat(1.0f,  4.0f);
-            case WeatherType::HeavyFog:  return rng.randomFloat(0.5f,  2.0f);
+            case WeatherType::Clear:     return rng.range(4.0f, 12.0f);
+            case WeatherType::Cloudy:    return rng.range(2.0f,  8.0f);
+            case WeatherType::Rain:      return rng.range(1.5f,  5.0f);
+            case WeatherType::HeavyRain: return rng.range(1.0f,  3.0f);
+            case WeatherType::Storm:     return rng.range(0.5f,  2.0f);
+            case WeatherType::Snow:      return rng.range(2.0f,  8.0f);
+            case WeatherType::Blizzard:  return rng.range(1.0f,  4.0f);
+            case WeatherType::Fog:       return rng.range(1.0f,  4.0f);
+            case WeatherType::HeavyFog:  return rng.range(0.5f,  2.0f);
         }
         return 2.0f;
     }
@@ -387,10 +387,10 @@ private:
         switch (type) {
             case WeatherType::Clear:    return 1.0f;
             case WeatherType::Blizzard:
-            case WeatherType::Storm:    return rng.randomFloat(0.7f, 1.0f);
+            case WeatherType::Storm:    return rng.range(0.7f, 1.0f);
             case WeatherType::HeavyFog:
-            case WeatherType::HeavyRain:return rng.randomFloat(0.6f, 1.0f);
-            default:                    return rng.randomFloat(0.3f, 1.0f);
+            case WeatherType::HeavyRain:return rng.range(0.6f, 1.0f);
+            default:                    return rng.range(0.3f, 1.0f);
         }
     }
 

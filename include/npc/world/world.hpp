@@ -5,6 +5,7 @@
 #include "../event/event_system.hpp"
 #include "time_system.hpp"
 #include "world_event_manager.hpp"
+#include "../social/social_contract_system.hpp"
 #include <vector>
 #include <map>
 #include <string>
@@ -28,6 +29,12 @@ public:
         : width_(width), height_(height)
         , grid_(height, std::vector<WorldCell>(width)) {
     }
+
+    // Event subscriptions and perception hooks refer to this world by address.
+    GameWorld(const GameWorld&) = delete;
+    GameWorld& operator=(const GameWorld&) = delete;
+    GameWorld(GameWorld&&) = delete;
+    GameWorld& operator=(GameWorld&&) = delete;
 
     // ─── Grid ────────────────────────────────────────────────────────
     int width() const { return width_; }
@@ -84,6 +91,14 @@ public:
     EventBus& events() { return events_; }
     WorldEventManager& eventManager() { return eventManager_; }
 
+    // Social simulation is opt-in; the existing FSM/BT/GOAP setup still owns
+    // how NPCs move. The adapter supplies intentions through the blackboard.
+    SocialContractSystem& social() { return social_; }
+    const SocialContractSystem& social() const { return social_; }
+    void enableSocialSimulation(bool enabled = true);
+    void syncSocialActors();
+    void updateSocial();
+
     // ─── Simulation step ─────────────────────────────────────────────
     void update(float dt);
 
@@ -103,6 +118,10 @@ private:
     TimeSystem time_{6.0f};
     EventBus events_;
     WorldEventManager eventManager_;
+    SocialContractSystem social_;
+    bool socialEnabled_ = false;
+    std::map<EntityId, float> socialStamina_;
+    bool socialLineOfSight(Vec2 from, Vec2 to) const;
 };
 
 } // namespace npc

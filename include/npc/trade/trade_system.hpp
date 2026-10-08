@@ -402,7 +402,6 @@ public:
         recordSaleEvent(s.itemId, s.quantity, s.npcCounter, currentTime_);
         recordPrice(s.itemId, s.npcCounter, s.quantity);
 
-        auto* item = getItemInfo(s.itemId);
         return {true, total, "Agreed on " + std::to_string(static_cast<int>(total)) + " gold."};
     }
 

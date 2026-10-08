@@ -11,6 +11,7 @@
 #include <fstream>
 #include <cmath>
 #include <cstdint>
+#include <limits>
 #include <cstdio>
 #include <cstring>
 
@@ -104,6 +105,12 @@ public:
         return std::get<JsonObject>(v_)[k];
     }
     // Array access
+    const JsonValue& operator[](int i) const { return (*this)[static_cast<size_t>(i)]; }
+    JsonValue& operator[](int i) {
+        if (i < 0) throw std::out_of_range("Negative JSON array index");
+        return (*this)[static_cast<size_t>(i)];
+    }
+    JsonValue& operator[](size_t i) { return std::get<JsonArray>(v_).at(i); }
     const JsonValue& operator[](size_t i) const {
         static const JsonValue null_;
         if (!isArray()) return null_;
@@ -166,11 +173,14 @@ inline void write(const JsonValue& v, std::string& out, int ind, int d) {
         case 3: {
             char buf[64];
             double x = v.asDouble();
-            if (std::isfinite(x) && x == static_cast<double>(static_cast<int64_t>(x))
-                && std::abs(x) < 1e15)
+            if (!std::isfinite(x)) {
+                out += "null";
+                return;
+            }
+            if (std::abs(x) < 1e15 && x == static_cast<double>(static_cast<int64_t>(x)))
                 std::snprintf(buf, sizeof(buf), "%.1f", x);
             else
-                std::snprintf(buf, sizeof(buf), "%.8g", x);
+                std::snprintf(buf, sizeof(buf), "%.*g", std::numeric_limits<double>::max_digits10, x);
             out += buf; return;
         }
         case 4: out += escStr(v.asString()); return;

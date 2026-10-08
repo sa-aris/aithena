@@ -6,6 +6,25 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [Unreleased]
+
+### Added
+- Decision boundaries with named constraints, weighted proposals, explainable rejections, and independent per-cause random draws.
+- Social contracts separating personal knowledge, private intentions, sustained work, outcome evidence, and individual judgments. Includes resource reservations, local gossip, confidence and source paths, evidence corrections, and bounded state.
+- Opt-in `GameWorld` and `SimulationManager` integration with movement, stamina, urgent needs, memories, and typed social events.
+- Versioned social snapshots with exact 64-bit identifiers, pending work and reservations, and atomic validation before replacing state.
+- Social demonstration, focused regression suites, and a population benchmark.
+
+### Fixed
+- Negative spatial coordinates no longer invoke undefined behavior when constructing cell keys.
+- JSON numbers preserve double precision; nonfinite values serialize as `null`, and mutable array access checks its bounds.
+- Simulation manager API mismatches, day-wrapping event timestamps, zero LOD intervals, duplicate spawns, and skill/weather subscription lifetimes.
+
+### Changed
+- `GameWorld` has a stable address: copying and moving are disabled because its subscriptions and perception hooks reference the world.
+
+---
+
 ## [1.1.0] — 2026-07-09
 
 ### Added

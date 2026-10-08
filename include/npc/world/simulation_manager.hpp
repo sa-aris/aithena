@@ -109,8 +109,10 @@ public:
         : world_(world)
         , lodCfg_(lodCfg)
         , spatial_(spatialCellSize)
+        , rng_(RandomGenerator::instance())
     {
-        weather_.subscribeToEvents(world_.events(), &world_.events());
+        weatherSubscription_ = ScopedSubscription(world_.events(),
+            weather_.subscribeToEvents(world_.events(), &world_.events()));
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -118,16 +120,17 @@ public:
     // ═══════════════════════════════════════════════════════════════
 
     void update(float dt) {
+        if (!std::isfinite(dt) || dt < 0.0f) return;
         auto frameStart = now_us();
         ++frameCount_;
 
         // ── 1. Advance event bus delayed queue ──────────────────────
-        float simTimeSecs = world_.time().currentHour() * 3600.f;
+        float simTimeSecs = world_.time().totalHours() * 3600.f;
         world_.events().update(simTimeSecs);
 
         // ── 2. Advance simulation clock ──────────────────────────────
         auto t0 = now_us();
-        world_.time().update(dt, &world_.events());
+        world_.time().update(dt, world_.events());
         stats_.timeMicros = now_us() - t0;
 
         // ── 3. Advance weather ───────────────────────────────────────
@@ -146,6 +149,7 @@ public:
         tickActive(dt);
         tickBackground(dt);
         tickDormant(dt);
+        world_.updateSocial();
         stats_.aiMicros = now_us() - tai;
 
         // ── 7. Refresh spatial index ─────────────────────────────────
@@ -160,7 +164,7 @@ public:
         // ── 9. Finalise stats ────────────────────────────────────────
         stats_.totalMicros   = now_us() - frameStart;
         stats_.frameNumber   = frameCount_;
-        stats_.simTimeHours  = world_.time().currentHour();
+        stats_.simTimeHours  = world_.time().totalHours();
         stats_.totalNPCs     = static_cast<int>(world_.npcs().size());
     }
 
@@ -172,6 +176,7 @@ public:
         if (!npc) return;
 
         EntityId id = npc->id;
+        if (world_.findNPC(id)) return;
 
         // Wire event subscriptions; store as ScopedSubscription group
         // so they auto-cleanup on despawn.
@@ -188,7 +193,7 @@ public:
             [n = npc.get()](const SkillLevelUpEvent& e) { n->onSkillLevelUp(e); });
 
         // Wire skill system's own event subscriptions
-        npc->skills.subscribeToEvents(world_.events());
+        npc->skills.subscribeToEvents(world_.events(), &group);
 
         // Initial spatial registration
         spatial_.update(id, npc->position);
@@ -406,10 +411,11 @@ private:
     }
 
     void tickBackground(float dt) {
-        if (frameCount_ % static_cast<uint64_t>(lodCfg_.backgroundInterval) != 0)
+        const auto interval = std::max(1, lodCfg_.backgroundInterval);
+        if (frameCount_ % static_cast<uint64_t>(interval) != 0)
             return;
 
-        float scaledDt = dt * static_cast<float>(lodCfg_.backgroundInterval);
+        float scaledDt = dt * static_cast<float>(interval);
 
         for (auto& npc : world_.npcs()) {
             if (!npc || lodTiers_[npc->id] != LODTier::Background) continue;
@@ -417,7 +423,7 @@ private:
             if (backgroundTickFn_) {
                 backgroundTickFn_(*npc, scaledDt, world_);
             } else {
-                defaultBackgroundTick(*npc, scaledDt);
+                defaultBackgroundTick(*npc, scaledDt, world_);
             }
         }
     }
@@ -429,7 +435,7 @@ private:
             dormantAccum_[npc->id] += dt;
         }
 
-        if (frameCount_ % static_cast<uint64_t>(lodCfg_.dormantInterval) != 0)
+        if (frameCount_ % static_cast<uint64_t>(std::max(1, lodCfg_.dormantInterval)) != 0)
             return;
 
         for (auto& npc : world_.npcs()) {
@@ -447,10 +453,12 @@ private:
     }
 
     // Default background tick: movement + emotions + schedule fatigue
-    static void defaultBackgroundTick(NPC& npc, float dt) {
+    static void defaultBackgroundTick(NPC& npc, float dt, GameWorld& world) {
         npc.emotions.update(dt);
         npc.updateMovement(dt);
-        npc.schedule.updateFatigue(dt);
+        const auto activity = npc.schedule.getCurrentActivity(
+            world.time().currentHour(), world.time().dayOfWeek());
+        npc.schedule.updateFatigue(dt, activity ? activity->activity : ActivityType::Idle);
     }
 
     // Default dormant tick: only needs/emotion decay (no movement, no AI)
@@ -496,7 +504,8 @@ private:
     LODConfig     lodCfg_;
     SpatialIndex  spatial_;
     WeatherSystem weather_;
-    RandomGenerator rng_;
+    ScopedSubscription weatherSubscription_;
+    RandomGenerator& rng_;
 
     Vec2     playerPos_{0.f, 0.f};
     uint64_t frameCount_ = 0;

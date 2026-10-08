@@ -245,24 +245,27 @@ public:
 
     // ── EventBus integration ──────────────────────────────────────────────────
     // Subscribe to game events and auto-award XP.
-    void subscribeToEvents(EventBus& bus) {
+    void subscribeToEvents(EventBus& bus, SubscriptionGroup* lifetime = nullptr) {
+        const auto track = [&](SubscriptionId id) {
+            if (lifetime) lifetime->add(ScopedSubscription(bus, id));
+        };
         // Combat XP: 20 for hit, 80 for kill
-        bus.subscribe<CombatEvent>([this](const CombatEvent& ev) {
+        track(bus.subscribe<CombatEvent>([this](const CombatEvent& ev) {
             if (ev.attacker == owner_) {
                 float xp = ev.killed ? 80.0f : 20.0f;
                 awardXP(SkillDomain::Combat, xp);
             }
-        });
+        }));
         // Trade XP: 10 per transaction
-        bus.subscribe<TradeEvent>([this](const TradeEvent& ev) {
+        track(bus.subscribe<TradeEvent>([this](const TradeEvent& ev) {
             if (ev.buyer == owner_ || ev.seller == owner_)
                 awardXP(SkillDomain::Trade, 10.0f * ev.quantity);
-        });
+        }));
         // Quest XP: 150 per completion
-        bus.subscribe<QuestCompletedEvent>([this](const QuestCompletedEvent& ev) {
+        track(bus.subscribe<QuestCompletedEvent>([this](const QuestCompletedEvent& ev) {
             if (ev.takerId == owner_)
                 awardXP(SkillDomain::Combat, 50.0f);  // generic XP spread
-        });
+        }));
     }
 
     // Manual XP for work shift end
