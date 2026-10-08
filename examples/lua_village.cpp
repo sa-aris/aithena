@@ -87,7 +87,7 @@ int main(int argc, char** argv) {
     guard->fsm.setInitialState("patrol");
 
     // ── Merchant ──────────────────────────────────────────────────────────────
-    auto merchant = std::make_shared<npc::NPC>(2, "Mira", npc::NPCType::Merchant);
+    auto merchant = std::make_shared<npc::NPC>(2, "Morgan", npc::NPCType::Merchant);
     merchant->position        = {30.0f, 20.0f};
     merchant->personality     = npc::PersonalityTraits::merchant();
     merchant->combat.stats.maxHealth = 60.0f;

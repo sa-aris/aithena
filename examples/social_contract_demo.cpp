@@ -7,7 +7,7 @@ int main(int argc, char** argv) {
     using namespace npc;
     const uint64_t seed = argc > 1 ? std::strtoull(argv[1], nullptr, 10) : 42;
     GameWorld world(24, 12);
-    const char* names[] = {"Mira", "Ada", "Baran", "Derya", "Eren"};
+    const char* names[] = {"Morgan", "Alice", "Ben", "Diana", "Ethan"};
     for (EntityId id = 1; id <= 5; ++id) {
         auto n = std::make_shared<NPC>(id, names[id - 1], NPCType::Villager);
         n->position = {2.0f + (id - 1) * 3.0f, 4};
@@ -20,9 +20,9 @@ int main(int argc, char** argv) {
     // The scenario's identities and causes stay fixed across runs.
     auto& social = world.social();
     social.setSeed(seed);
-    social.relationships().setValue("Ada", "Mira", 65);
-    social.relationships().setValue("Baran", "Mira", -80);
-    social.relationships().setValue("Derya", "Mira", 15);
+    social.relationships().setValue("Alice", "Morgan", 65);
+    social.relationships().setValue("Ben", "Morgan", -80);
+    social.relationships().setValue("Diana", "Morgan", 15);
     auto config = social.config(); config.gossipChance = 0.9; social.configure(config);
 
     world.events().subscribe<SocialEvent>([&](const SocialEvent& e) {

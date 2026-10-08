@@ -66,20 +66,20 @@ Use stable, unique cause IDs. Do not reuse IDs after retirement. Actor names are
 #include <cassert>
 
 npc::SocialContractSystem social(42);
-npc::SocialActor ada;
-ada.id = 1; ada.name = "Ada"; ada.position = {1, 1};
-npc::SocialActor mira;
-mira.id = 2; mira.name = "Mira"; mira.position = {2, 1};
-assert(social.upsertActor(ada));
-assert(social.upsertActor(mira));
+npc::SocialActor alice;
+alice.id = 1; alice.name = "Alice"; alice.position = {1, 1};
+npc::SocialActor morgan;
+morgan.id = 2; morgan.name = "Morgan"; morgan.position = {2, 1};
+assert(social.upsertActor(alice));
+assert(social.upsertActor(morgan));
 
 npc::SocialContract duty;
-duty.id = 100; duty.actor = ada.id; duty.beneficiary = mira.id;
+duty.id = 100; duty.actor = alice.id; duty.beneficiary = morgan.id;
 duty.topic = "join the communal repair shift";
 duty.openedAt = social.time(); duty.deadline = social.time() + 4;
 duty.workDuration = 0.5;
 assert(social.open(duty));
-assert(social.inform(ada.id, duty.id));
+assert(social.inform(alice.id, duty.id));
 
 auto report = social.decide(duty.id);
 if (report.selected) social.commit(report);

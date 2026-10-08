@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 project(Aithena
-    VERSION 1.1.0
+    VERSION 2.0.0
     DESCRIPTION "C++17 NPC AI framework — FSM, behavior trees, emotions, memory, pathfinding, relationships, living economy, procedural quests, Lua scripting"
     LANGUAGES CXX
 )
@@ -148,6 +148,8 @@ if(NPC_SHARED AND NOT EMSCRIPTEN)
     target_compile_definitions(npc_shared PRIVATE NPC_BUILDING_DLL)
     set_target_properties(npc_shared PROPERTIES
         OUTPUT_NAME "npc_shared"
+        VERSION "${PROJECT_VERSION}"
+        SOVERSION "${PROJECT_VERSION_MAJOR}"
         # Hide all symbols by default; only NPC_API ones are exported
         C_VISIBILITY_PRESET   hidden
         CXX_VISIBILITY_PRESET hidden

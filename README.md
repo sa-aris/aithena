@@ -3,9 +3,12 @@
 C++17 NPC simulation with explicit decision boundaries and local social consequences.
 
 [![CI](https://github.com/sa-aris/aithena/actions/workflows/ci.yml/badge.svg)](https://github.com/sa-aris/aithena/actions/workflows/ci.yml)
+[![Version](https://img.shields.io/badge/main-2.0.0-blue.svg)](CHANGELOG.md#200--unreleased)
 [![C++17](https://img.shields.io/badge/C%2B%2B-17-blue.svg)](https://en.cppreference.com/w/cpp/17)
 [![Tests](https://img.shields.io/badge/unit_tests-203-blue.svg)](#verification)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+
+`main` contains the 2.0.0 development version. The latest tagged release is [v1.1.0](https://github.com/sa-aris/aithena/releases/tag/v1.1.0).
 
 Aithena gives game characters personal knowledge, finite resources, relationships, memory, and responsibilities. Policies propose what a character might do; boundaries determine what the world permits. Choices can vary while their causes and consequences stay coherent.
 
@@ -13,9 +16,9 @@ The core uses the C++ standard library. Lua scripting, C bindings, and the WebAs
 
 [Quick start](#quick-start) · [Decision model](#decision-model) · [Systems](#systems) · [Integration](#integration) · [Benchmarks](#benchmarks)
 
-[![A seeded social simulation: Ada completes the repair shift, Derya sends support, and Baran misses the duty while evidence spreads between people.](demo.gif)](examples/social_contract_demo.cpp)
+[![A seeded social simulation: Alice completes the repair shift, Diana sends support, and Ben misses the duty while evidence spreads between people.](demo.gif)](examples/social_contract_demo.cpp)
 
-*Recorded C++ state from the communal repair scenario, seed `123`. Private intentions, physical progress, evidence paths, and reputation are visualized separately.*
+*4K preview (3840 × 2160), recorded from the C++ communal repair scenario with seed `123`. Private intentions, physical progress, evidence paths, and reputation are visualized separately.*
 
 Run the scenario with `./build/social_contract_demo 123`. The [browser village demo](https://sa-aris.github.io/aithena/) provides an interactive view of emotions, memory decay, and social influence chains.
 
@@ -82,28 +85,28 @@ The host supplies the situations, perception inputs, and game rules. The framewo
 int main() {
     npc::GameWorld world(24, 12);
 
-    auto ada = std::make_shared<npc::NPC>(1, "Ada", npc::NPCType::Villager);
-    auto mira = std::make_shared<npc::NPC>(2, "Mira", npc::NPCType::Villager);
-    ada->position = {5, 4};
-    mira->position = {2, 4};
-    ada->verbose = mira->verbose = false;
-    world.addNPC(ada);
-    world.addNPC(mira);
+    auto alice = std::make_shared<npc::NPC>(1, "Alice", npc::NPCType::Villager);
+    auto morgan = std::make_shared<npc::NPC>(2, "Morgan", npc::NPCType::Villager);
+    alice->position = {5, 4};
+    morgan->position = {2, 4};
+    alice->verbose = morgan->verbose = false;
+    world.addNPC(alice);
+    world.addNPC(morgan);
     world.enableSocialSimulation();
 
     auto& social = world.social();
     social.setSeed(123);
-    social.relationships().setValue("Ada", "Mira", 65);
+    social.relationships().setValue("Alice", "Morgan", 65);
 
     npc::SocialContract duty;
     duty.id = 100;
-    duty.actor = ada->id;
-    duty.beneficiary = mira->id;
+    duty.actor = alice->id;
+    duty.beneficiary = morgan->id;
     duty.topic = "repair the shared fence";
     duty.openedAt = social.time();
     duty.deadline = social.time() + 2.0;
     duty.workDuration = 0.25;
-    if (!social.open(duty) || !social.inform(ada->id, duty.id)) return 1;
+    if (!social.open(duty) || !social.inform(alice->id, duty.id)) return 1;
 
     // Time is expressed in game hours: 0.1 = six game minutes.
     for (int i = 0; i < 60; ++i) world.update(0.1f);
@@ -145,7 +148,7 @@ target_link_libraries(your_game PRIVATE npc_lib)
 
 For a standalone module such as `DecisionBoundary` or `SocialContractSystem`, add `include/` to your include path. These modules need no Aithena translation units.
 
-`GameWorld` has a stable address and cannot be copied or moved because its hooks refer to the world. Keep it alive longer than its `SimulationManager`. Social state is single-threaded; serialize access to it. Parallel background ticking and thread-safe wrappers are separate, optional facilities.
+When migrating from 1.1 to 2.0, keep `GameWorld` at a stable address. Copying and moving are disabled because its hooks refer to the world; use a `std::unique_ptr<GameWorld>` if ownership must move. Keep the world alive longer than its `SimulationManager`. Social state is single-threaded; serialize access to it. Parallel background ticking and thread-safe wrappers are separate, optional facilities.
 
 ### Lua
 
