@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cmath>
 #include <functional>
+#include <limits>
 
 namespace npc {
 
@@ -188,11 +189,22 @@ public:
 
     // ── Travel helpers ────────────────────────────────────────────────────────
     static float travelTime(Vec2 from, Vec2 to, float speed = 5.0f) {
-        return speed > 0.0f ? from.distanceTo(to) / speed : 0.0f;
+        float distance = from.distanceTo(to);
+        if (distance == 0.0f) return 0.0f;
+        if (!std::isfinite(distance) || !std::isfinite(speed) || speed <= 0.0f)
+            return std::numeric_limits<float>::infinity();
+        return distance / speed;
     }
     static bool canReachInTime(Vec2 from, Vec2 to, float currentHour,
                                 const ScheduleEntry& entry, float speed = 5.0f) {
-        return travelTime(from, to, speed) < entry.durationHours() * 0.80f;
+        if (!std::isfinite(currentHour) || !std::isfinite(speed) || speed <= 0.0f)
+            return false;
+        float hour = std::fmod(currentHour, 24.0f);
+        if (hour < 0.0f) hour += 24.0f;
+        if (!entry.isActiveAt(static_cast<int>(hour))) return false;
+        float remaining = static_cast<float>(entry.endHour) - hour;
+        if (remaining <= 0.0f) remaining += 24.0f;
+        return travelTime(from, to, speed) < remaining * 0.80f;
     }
 
     // ── Core resolve — day-of-week aware ──────────────────────────────────────

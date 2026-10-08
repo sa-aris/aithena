@@ -10,6 +10,25 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.0.2] — 2026-10-08
+
+### Fixed
+- Context-aware dialogue selection rechecks reputation and mood gates before running effects or changing nodes.
+- Zero-capacity path caches safely disable storage; cache copies rebuild their own LRU links instead of retaining iterators into the source.
+- Schedule travel checks use the remaining activity window, including overnight entries, and reject nonpositive speeds.
+- Single-member flanking avoids division by zero. Encirclement follows the approach direction, and rallying recovers morale according to elapsed game time.
+- Task scheduling handles unknown processor counts without unsigned underflow, cleans up partially started workers, and rejects submissions after shutdown.
+- Public headers and village examples compile without warnings under GCC's `-Wall -Wextra -Wpedantic -Werror` settings. Removed unused example variables and explicitly defaulted optional aggregate fields.
+
+### Added
+- Nine regression tests for dialogue, path-cache ownership, schedule windows, group movement, morale, and scheduler lifecycle (226 unit tests with the shared library enabled).
+
+### Changed
+- Restored comprehensive README coverage of individual systems, architecture, build options, examples, engine bindings, persistence, lifetime rules, migration, verification, and benchmarks.
+- GCC/Clang CI treats compiler warnings as errors. Native CI targets the maintained `main` branch.
+
+---
+
 ## [2.0.1] — 2026-10-08
 
 ### Fixed

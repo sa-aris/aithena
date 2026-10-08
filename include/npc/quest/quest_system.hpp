@@ -243,7 +243,7 @@ public:
     // ── Offering ──────────────────────────────────────────────────────────────
     // NPC offers quest to an entity. Returns false if prerequisites unmet.
     bool offerQuest(const std::string& questId, EntityId takerId,
-                    float currentTime, EventBus* bus = nullptr) {
+                    float /*currentTime*/, EventBus* bus = nullptr) {
         auto* q = findQuest(questId);
         if (!q) return false;
         if (q->status == QuestStatus::Locked) return false;
@@ -298,7 +298,7 @@ public:
 
     // Shortcut: advance first matching objective by type+tag
     bool notifyKill(EntityId takerId, const std::string& enemyTag,
-                    float currentTime, EventBus* bus = nullptr) {
+                    float /*currentTime*/, EventBus* bus = nullptr) {
         bool any = false;
         for (auto& [id, q] : quests_) {
             if (q.status != QuestStatus::Active) continue;
@@ -520,7 +520,7 @@ private:
     }
 
     void failQuest(Quest* q, EntityId takerId, const std::string& reason,
-                   float currentTime, EventBus* bus, RelationshipSystem* rel) {
+                   float /*currentTime*/, EventBus* bus, RelationshipSystem* rel) {
         q->status = (reason == "abandoned") ? QuestStatus::Abandoned : QuestStatus::Failed;
         if (rel && q->giverId != INVALID_ENTITY && q->failRelDelta != 0.0f)
             rel->modifyValue(std::to_string(takerId), std::to_string(q->giverId), q->failRelDelta);

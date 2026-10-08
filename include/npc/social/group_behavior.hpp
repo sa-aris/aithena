@@ -72,7 +72,7 @@ struct GroupMorale {
     static constexpr float OUTNUMBERED_TICK   =  -1.5f;  // per update, per ratio point above 1
     static constexpr float FLANK_ATTACKED_HIT = -10.0f;
     static constexpr float RALLY_BOOST        = +20.0f;
-    static constexpr float PASSIVE_RECOVERY   =  +0.5f;  // per update while Rallying
+    static constexpr float PASSIVE_RECOVERY   =  +0.5f;  // per game-hour while Rallying
 
     bool isBroken()    const { return value <= breakThreshold; }
     bool isWavering()  const { return value <= waverThreshold; }
@@ -204,7 +204,7 @@ public:
 
     void rally(float boost = GroupMorale::RALLY_BOOST) {
         morale_.apply(boost);
-        if (morale_.hasRallied() && state_ == TacticalState::Routing)
+        if (state_ == TacticalState::Routing)
             state_ = TacticalState::Rallying;
     }
 
@@ -282,8 +282,9 @@ public:
         if (alive.empty()) return result;
 
         int n = static_cast<int>(alive.size());
+        float startAngle = std::atan2(approachDir.y, approachDir.x);
         for (int i = 0; i < n; ++i) {
-            float angle = (2.0f * kPi * i) / n;
+            float angle = startAngle + (2.0f * kPi * i) / n;
             Vec2  pos   = targetPos + Vec2{std::cos(angle), std::sin(angle)} * ENCIRCLE_RADIUS;
             result.push_back({alive[i]->id, pos});
         }
@@ -303,7 +304,7 @@ public:
         Vec2 behind = approachDir * -1.0f;
 
         int n     = static_cast<int>(alive.size());
-        int split = n / 2;
+        int split = std::max(1, n / 2);
 
         for (int i = 0; i < n; ++i) {
             Vec2 side = (i < split) ? right : left;
@@ -357,7 +358,8 @@ public:
 
         // Passive morale recovery while rallying
         if (state_ == TacticalState::Rallying) {
-            morale_.apply(GroupMorale::PASSIVE_RECOVERY);
+            if (std::isfinite(dt) && dt > 0.0f)
+                morale_.apply(GroupMorale::PASSIVE_RECOVERY * dt);
             if (morale_.hasRallied()) state_ = TacticalState::Idle;
         }
 

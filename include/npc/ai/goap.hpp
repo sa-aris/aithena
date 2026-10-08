@@ -58,7 +58,7 @@ struct GOAPAction {
     std::string fsmState;
 
     // Optional: dynamic cost modifier
-    std::function<float(const Blackboard&)> costFn;
+    std::function<float(const Blackboard&)> costFn = nullptr;
 
     float getCost(const Blackboard& bb) const {
         return costFn ? costFn(bb) : cost;

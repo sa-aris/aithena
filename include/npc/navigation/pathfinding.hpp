@@ -136,6 +136,24 @@ class PathCache {
 public:
     explicit PathCache(size_t capacity = 128) : capacity_(capacity) {}
 
+    PathCache(const PathCache& other) : capacity_(other.capacity_), lru_(other.lru_) {
+        for (auto it = lru_.begin(); it != lru_.end(); ++it)
+            map_.emplace(*it, Entry{other.map_.at(*it).path, it});
+    }
+
+    PathCache& operator=(const PathCache& other) {
+        if (this != &other) {
+            PathCache copy(other);
+            std::swap(capacity_, copy.capacity_);
+            map_.swap(copy.map_);
+            lru_.swap(copy.lru_);
+        }
+        return *this;
+    }
+
+    PathCache(PathCache&&) = default;
+    PathCache& operator=(PathCache&&) = default;
+
     const std::vector<Vec2>* get(const PathCacheKey& key) {
         auto it = map_.find(key);
         if (it == map_.end()) return nullptr;
@@ -145,6 +163,7 @@ public:
     }
 
     void put(PathCacheKey key, std::vector<Vec2> path) {
+        if (capacity_ == 0) return;
         auto it = map_.find(key);
         if (it != map_.end()) {
             it->second.path = std::move(path);
@@ -164,7 +183,8 @@ public:
     void invalidateCell(int x, int y) {
         std::vector<PathCacheKey> toRemove;
         for (auto& [k, v] : map_)
-            if (k.sx==x&&k.sy==y || k.gx==x&&k.gy==y) toRemove.push_back(k);
+            if ((k.sx == x && k.sy == y) || (k.gx == x && k.gy == y))
+                toRemove.push_back(k);
         for (auto& k : toRemove) {
             lru_.erase(map_[k].listIt);
             map_.erase(k);

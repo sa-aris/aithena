@@ -86,7 +86,7 @@ struct CombatStats {
     std::vector<Ability> abilities;
     ResourcePool stamina{100.0f, 100.0f, 5.0f, 15.0f};
     ResourcePool mana{0.0f, 0.0f, 3.0f, 10.0f};
-    DamageResistances resistances;
+    DamageResistances resistances{};
 
     float healthPercent() const {
         return maxHealth > 0.0f ? health / maxHealth : 0.0f;

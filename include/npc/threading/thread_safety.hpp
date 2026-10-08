@@ -36,6 +36,7 @@
 #include <cassert>
 #include <string>
 #include <sstream>
+#include <stdexcept>
 
 namespace npc {
 
@@ -449,14 +450,21 @@ enum class TaskPriority : int { High = 0, Normal = 1, Low = 2 };
 
 class TaskScheduler {
 public:
+    static size_t defaultWorkerCount(unsigned detected = std::thread::hardware_concurrency()) {
+        return detected > 1 ? detected - 1 : 1;
+    }
+
     explicit TaskScheduler(size_t numThreads = 0) {
-        size_t n = numThreads > 0
-            ? numThreads
-            : std::max(1u, std::thread::hardware_concurrency() - 1);
+        size_t n = numThreads > 0 ? numThreads : defaultWorkerCount();
         running_ = true;
         workers_.reserve(n);
-        for (size_t i = 0; i < n; ++i)
-            workers_.emplace_back(&TaskScheduler::workerLoop, this);
+        try {
+            for (size_t i = 0; i < n; ++i)
+                workers_.emplace_back(&TaskScheduler::workerLoop, this);
+        } catch (...) {
+            shutdown();
+            throw;
+        }
     }
 
     ~TaskScheduler() { shutdown(); }
@@ -473,6 +481,7 @@ public:
     {
         {
             std::unique_lock<std::mutex> lk(mu_);
+            if (!running_) throw std::logic_error("Cannot submit to a stopped scheduler");
             tasks_.push({std::move(fn), static_cast<int>(priority),
                          taskCounter_++});
         }

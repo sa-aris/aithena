@@ -207,4 +207,141 @@ TEST("Parallel ticker: submitted work completes with scheduled fatigue") {
 }
 #endif
 
+TEST("Dialog: rejected options do not run effects or change nodes") {
+    DialogSystem dialog;
+    DialogTree tree("greeting");
+    DialogNode root;
+    root.id = "root";
+    DialogOption option;
+    option.text = "Request access";
+    option.nextNodeId = "END";
+    option.minReputation = 30;
+    option.condition = [](float, float mood) { return mood >= 0; };
+    int effects = 0;
+    option.effect = [&](bool, StoryFlags&) { ++effects; };
+    root.options.push_back(option);
+    tree.addNode(root);
+    dialog.addTree("greeting", std::move(tree));
+    ASSERT_TRUE(dialog.startDialog("greeting"));
+    auto& rng = RandomGenerator::instance();
+    rng.seed(1);
+    StoryFlags flags;
+    PersonalityTraits traits;
+    float delta = 0;
+    ASSERT_FALSE(dialog.selectOption(0, 20, 1, traits, 1, 0, rng, flags, delta));
+    ASSERT_FALSE(dialog.selectOption(0, 40, -1, traits, 1, 0, rng, flags, delta));
+    ASSERT_EQ(effects, 0);
+    ASSERT_EQ(dialog.currentNode()->id, "root");
+    ASSERT_TRUE(dialog.selectOption(0, 40, 1, traits, 1, 0, rng, flags, delta));
+    ASSERT_EQ(effects, 1);
+    ASSERT_FALSE(dialog.isInDialog());
+}
+
+TEST("Path cache: zero capacity disables storage safely") {
+    PathCache cache(0);
+    cache.put({0, 0, 1, 1}, {{0, 0}, {1, 1}});
+    ASSERT_EQ(cache.size(), 0u);
+    ASSERT_TRUE(cache.get({0, 0, 1, 1}) == nullptr);
+}
+
+TEST("Path cache: copies own their LRU links after source removal") {
+    PathCache source(2);
+    source.put({0, 0, 1, 0}, {{0, 0}, {1, 0}});
+    source.put({0, 0, 2, 0}, {{0, 0}, {2, 0}});
+    PathCache copy(source);
+    PathCache assigned;
+    assigned = source;
+    source.clear();
+    ASSERT_TRUE(copy.get({0, 0, 1, 0}) != nullptr);
+    copy.put({0, 0, 3, 0}, {{0, 0}, {3, 0}});
+    ASSERT_TRUE(copy.get({0, 0, 2, 0}) == nullptr);
+    ASSERT_TRUE(assigned.get({0, 0, 2, 0}) != nullptr);
+    assigned.invalidateCell(1, 0);
+    ASSERT_EQ(assigned.size(), 1u);
+    PathCache moved(std::move(assigned));
+    ASSERT_TRUE(moved.get({0, 0, 2, 0}) != nullptr);
+}
+
+TEST("Schedule: travel uses the remaining daytime or overnight window") {
+    ScheduleEntry day{8, 12, ActivityType::Work, "Workshop"};
+    ScheduleEntry night{22, 2, ActivityType::Sleep, "Home"};
+    ASSERT_TRUE(ScheduleSystem::canReachInTime({0, 0}, {1, 0}, 8, day, 1));
+    ASSERT_FALSE(ScheduleSystem::canReachInTime({0, 0}, {1, 0}, 11.5f, day, 1));
+    ASSERT_FALSE(ScheduleSystem::canReachInTime({0, 0}, {1, 0}, 12, day, 1));
+    ASSERT_TRUE(ScheduleSystem::canReachInTime({0, 0}, {1, 0}, 23.5f, night, 1));
+    ASSERT_FALSE(ScheduleSystem::canReachInTime({0, 0}, {1, 0}, 25.9f, night, 1));
+    ASSERT_FALSE(ScheduleSystem::canReachInTime({0, 0}, {1, 0}, 8, day, 0));
+    ASSERT_TRUE(std::isinf(ScheduleSystem::travelTime({0, 0}, {1, 0}, 0)));
+    ASSERT_NEAR(ScheduleSystem::travelTime({1, 0}, {1, 0}, 0), 0, 1e-6f);
+    ScheduleSystem schedule;
+    schedule.addEntry(day);
+    schedule.addEntry(12, 14, ActivityType::Eat, "Cafe");
+    auto activity = schedule.resolveWithTravel(11.5f, 11.5f, DayOfWeek::Monday, {0, 0},
+        [](const std::string&) { return std::optional<Vec2>{{1, 0}}; }, 1);
+    ASSERT_EQ(activity.reason, "travel_skip");
+    ASSERT_TRUE(activity.activity == ActivityType::Eat);
+}
+
+TEST("Group: one surviving flanker receives a finite position") {
+    GroupBehavior group;
+    group.addMember(1);
+    group.addMember(2);
+    group.onAllyKilled(2);
+    auto positions = group.computeFlankPositions({10, 10}, {1, 0});
+    ASSERT_EQ(positions.size(), 1u);
+    ASSERT_EQ(positions.front().first, 1u);
+    ASSERT_TRUE(std::isfinite(positions.front().second.x));
+    ASSERT_TRUE(std::isfinite(positions.front().second.y));
+}
+
+TEST("Group: encirclement rotates with the approach direction") {
+    GroupBehavior group;
+    group.addMember(1);
+    group.addMember(2);
+    auto positions = group.computeEncirclementPositions({10, 10}, {0, 1});
+    ASSERT_EQ(positions.size(), 2u);
+    ASSERT_NEAR(positions.front().second.x, 10, 1e-5f);
+    ASSERT_NEAR(positions.front().second.y, 14, 1e-5f);
+    ASSERT_NEAR(positions.back().second.y, 6, 1e-5f);
+}
+
+TEST("Group: rally recovery depends on elapsed time rather than tick count") {
+    GroupBehavior coarse;
+    coarse.addMember(1);
+    coarse.setLeader(1);
+    for (int i = 0; i < 8; ++i) coarse.onFlankAttacked();
+    ASSERT_TRUE(coarse.isRouting());
+    coarse.rally();
+    ASSERT_TRUE(coarse.tacticalState() == TacticalState::Rallying);
+    auto fine = coarse;
+    auto position = [](EntityId) { return Vec2{}; };
+    coarse.update(1, position);
+    for (int i = 0; i < 10; ++i) fine.update(0.1f, position);
+    ASSERT_NEAR(coarse.morale().value, fine.morale().value, 1e-4f);
+    ASSERT_NEAR(coarse.morale().value, 40.5f, 1e-4f);
+    fine.update(0, position);
+    fine.update(-1, position);
+    ASSERT_NEAR(coarse.morale().value, fine.morale().value, 1e-4f);
+}
+
+#ifdef NPC_TEST_THREADS
+TEST("Scheduler: an unknown processor count selects one worker") {
+    ASSERT_EQ(TaskScheduler::defaultWorkerCount(0), 1u);
+    ASSERT_EQ(TaskScheduler::defaultWorkerCount(1), 1u);
+    ASSERT_EQ(TaskScheduler::defaultWorkerCount(8), 7u);
+}
+
+TEST("Scheduler: shutdown drains accepted tasks and rejects new work") {
+    TaskScheduler scheduler(1);
+    auto result = scheduler.submitAsync([] { return 42; });
+    scheduler.shutdown();
+    ASSERT_EQ(result.get(), 42);
+    bool rejected = false;
+    try { scheduler.submitAsync([] { return 7; }); }
+    catch (const std::logic_error&) { rejected = true; }
+    ASSERT_TRUE(rejected);
+    ASSERT_EQ(scheduler.pending(), 0u);
+}
+#endif
+
 int main(int argc, char**) { return npc::test::run_all(argc > 1); }

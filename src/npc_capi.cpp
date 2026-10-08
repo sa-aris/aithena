@@ -618,5 +618,5 @@ int npc_rel_narrative(NpcRelSys*  rs,
 
 const char* npc_version(void)
 {
-    return "2.0.1";
+    return "2.0.2";
 }

@@ -104,16 +104,16 @@ struct DialogOption {
     int minReputation = -100;
 
     // Optional skill check attached to this option
-    std::optional<SkillCheckConfig> skillCheck;
+    std::optional<SkillCheckConfig> skillCheck = std::nullopt;
 
     // Node to jump to on skill-check failure (if empty, uses nextNodeId)
-    std::string failNodeId;
+    std::string failNodeId{};
 
     // Side effects: called on selection (after any skill check resolves)
-    std::function<void(bool skillSuccess, StoryFlags&)> effect;
+    std::function<void(bool skillSuccess, StoryFlags&)> effect = nullptr;
 
     // Story flag to set when this option is chosen
-    std::string setsFlag;
+    std::string setsFlag{};
     StoryValue  flagValue = true;
 };
 
@@ -332,6 +332,9 @@ public:
             return false;
 
         const auto& opt = node->options[index];
+        if (!(reputation >= opt.minReputation) ||
+            (opt.condition && !opt.condition(reputation, mood)))
+            return false;
         relationshipDeltaOut = 0.0f;
         bool skillSuccess = true;
         lastCheck_ = std::nullopt;

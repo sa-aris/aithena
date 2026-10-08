@@ -123,10 +123,6 @@ public:
             // Urgency: closer to collision = stronger force
             float urgency = 1.0f - (ttc / cfg_.ttcHorizon);
 
-            // Push direction: perpendicular to relative velocity, away from other
-            Vec2 relVel  = self.velocity - o.velocity;
-            Vec2 toOther = o.position - self.position;
-
             // Choose side that moves us most away from other's future position
             Vec2 futureOther = o.position + o.velocity * ttc;
             Vec2 awayDir     = (self.position - futureOther).normalized();

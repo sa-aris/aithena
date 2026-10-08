@@ -289,10 +289,6 @@ int main() {
                     else if (s > 0.35f) { col = "\033[0;33m";  stage = "fading";            }
                     else if (s > 0.0f)  { col = "\033[1;35m";  stage = "nearly forgotten";  }
                     else                { col = "\033[0;90m";   stage = "forgotten";         }
-                    char bar[6]; bar[5] = '\0';
-                    int filled = static_cast<int>(std::round(s * 5.0f));
-                    for (int i = 0; i < 5; ++i)
-                        bar[i] = (i < filled) ? '\xe2' : '\xe2'; // placeholder
                     // Build bar manually
                     std::string sbar;
                     int f2 = std::max(0, std::min(5, static_cast<int>(std::round(s * 5.0f))));
@@ -683,8 +679,6 @@ void processInfluenceChains(const std::string& timeStr, GameWorld& world) {
                 }
 
                 // ── Print hop ─────────────────────────────────────────────
-                const char* col = influenceColor(msg.charge).c_str();
-                // rebuild col properly:
                 std::string colStr = influenceColor(msg.charge);
                 std::cout << "[" << timeStr << "] "
                           << "\033[1;36m" << "\u27f6 INFLUENCE"
@@ -731,7 +725,6 @@ void printInfluenceChainSummary(GameWorld& world) {
     for (const auto& msg : msgs) {
         std::string colStr = influenceColor(msg.charge);
         int reached = static_cast<int>(msg.reachedIds.size());
-        int total   = static_cast<int>(world.npcs().size());
         // exclude enemies from total
         int villagers = 0;
         for (const auto& n : world.npcs())
@@ -1039,12 +1032,12 @@ void setupCombatBT(NPC& npc, GameWorld& world) {
             .end()
             // Branch 2: Flank and Attack
             .sequence("FlankAndAttack")
-                .condition("HasTarget?", [&npc](const Blackboard& bb) {
+                .condition("HasTarget?", [&npc](const Blackboard& /*bb*/) {
                     return npc.combat.selectTarget().has_value();
                 })
                 .selector("PositionChoice")
                     .sequence("Flank")
-                        .condition("CanFlank?", [&npc](const Blackboard& bb) {
+                        .condition("CanFlank?", [&npc](const Blackboard& /*bb*/) {
                             auto target = npc.combat.selectTarget();
                             if (!target) return false;
                             float dist = npc.position.distanceTo(target->position);
@@ -1063,7 +1056,7 @@ void setupCombatBT(NPC& npc, GameWorld& world) {
                             return NodeStatus::Success;
                         })
                     .end()
-                    .action("ApproachTarget", [&npc](Blackboard& bb) -> NodeStatus {
+                    .action("ApproachTarget", [&npc](Blackboard& /*bb*/) -> NodeStatus {
                         auto target = npc.combat.selectTarget();
                         if (!target) return NodeStatus::Failure;
                         float dist = npc.position.distanceTo(target->position);
@@ -1075,7 +1068,7 @@ void setupCombatBT(NPC& npc, GameWorld& world) {
                 .end()
                 .selector("AttackChoice")
                     .sequence("StrongAttack")
-                        .condition("SwordStrikeReady?", [&npc](const Blackboard& bb) {
+                        .condition("SwordStrikeReady?", [&npc](const Blackboard& /*bb*/) {
                             for (const auto& ab : npc.combat.stats.abilities) {
                                 if (ab.name == "Sword Strike" && ab.isReady())
                                     return true;
@@ -1172,7 +1165,7 @@ void setupCombatBT(NPC& npc, GameWorld& world) {
                 .end()
             .end()
             // Branch 3: Fallback patrol
-            .action("FallbackPatrol", [&npc](Blackboard& bb) -> NodeStatus {
+            .action("FallbackPatrol", [&npc](Blackboard& /*bb*/) -> NodeStatus {
                 npc.moveTo(Vec2(20.0f, 12.0f));
                 return NodeStatus::Success;
             })
@@ -1458,7 +1451,7 @@ std::shared_ptr<NPC> createAlaric(GameWorld& world, std::shared_ptr<Pathfinder> 
 
     // FSM States
     npc->fsm.addState("Idle",
-        [npc = npc.get()](Blackboard& bb, float dt) {
+        [npc = npc.get()](Blackboard& bb, float /*dt*/) {
             auto activity = bb.get<std::string>("scheduled_activity");
             if (activity && *activity == "Patrol") {
                 bb.set<bool>("wants_patrol", true);
@@ -1469,7 +1462,7 @@ std::shared_ptr<NPC> createAlaric(GameWorld& world, std::shared_ptr<Pathfinder> 
         });
 
     npc->fsm.addState("Patrol",
-        [npc = npc.get(), patrolRoute, patrolIdx](Blackboard& bb, float dt) mutable {
+        [npc = npc.get(), patrolRoute, patrolIdx](Blackboard& /*bb*/, float /*dt*/) mutable {
             if (!npc->isMoving) {
                 patrolIdx = (patrolIdx + 1) % patrolRoute.size();
                 npc->moveTo(patrolRoute[patrolIdx]);
@@ -1481,7 +1474,7 @@ std::shared_ptr<NPC> createAlaric(GameWorld& world, std::shared_ptr<Pathfinder> 
         });
 
     npc->fsm.addState("Combat",
-        [npc = npc.get(), &world](Blackboard& bb, float dt) {
+        [npc = npc.get(), &world](Blackboard& /*bb*/, float /*dt*/) {
             // Combat is now handled by Behavior Tree in NPC::update()
             auto target = npc->combat.selectTarget();
             if (target) {
@@ -1514,7 +1507,7 @@ std::shared_ptr<NPC> createAlaric(GameWorld& world, std::shared_ptr<Pathfinder> 
         });
 
     npc->fsm.addState("Eat",
-        [npc = npc.get(), &world](Blackboard& bb, float dt) {
+        [npc = npc.get(), &world](Blackboard& /*bb*/, float dt) {
             auto* loc = world.getLocation("Tavern");
             if (loc && !npc->isAtLocation(Vec2(loc->x, loc->y))) {
                 npc->moveTo(Vec2(loc->x, loc->y));
@@ -1529,7 +1522,7 @@ std::shared_ptr<NPC> createAlaric(GameWorld& world, std::shared_ptr<Pathfinder> 
         });
 
     npc->fsm.addState("Socialize",
-        [npc = npc.get(), &world](Blackboard& bb, float dt) {
+        [npc = npc.get(), &world](Blackboard& /*bb*/, float dt) {
             auto* loc = world.getLocation("Square");
             if (loc && !npc->isAtLocation(Vec2(loc->x, loc->y))) {
                 npc->moveTo(Vec2(loc->x, loc->y));
@@ -1544,7 +1537,7 @@ std::shared_ptr<NPC> createAlaric(GameWorld& world, std::shared_ptr<Pathfinder> 
         });
 
     npc->fsm.addState("Sleep",
-        [npc = npc.get()](Blackboard& bb, float dt) {
+        [npc = npc.get()](Blackboard& /*bb*/, float dt) {
             npc->emotions.satisfyNeed(NeedType::Sleep, 30.0f * dt);
             npc->emotions.satisfyNeed(NeedType::Comfort, 10.0f * dt);
         },
@@ -1690,7 +1683,7 @@ std::shared_ptr<NPC> createBrina(GameWorld& world, std::shared_ptr<Pathfinder> p
     npc->trade.inventory.addItem(ITEM_IRON_ORE, 10);
 
     npc->fsm.addState("Work",
-        [npc = npc.get()](Blackboard& bb, float dt) {
+        [npc = npc.get()](Blackboard& /*bb*/, float dt) {
             npc->emotions.satisfyNeed(NeedType::Fun, 2.0f * dt);
             npc->trade.updatePrices();
         },
@@ -1700,7 +1693,7 @@ std::shared_ptr<NPC> createBrina(GameWorld& world, std::shared_ptr<Pathfinder> p
         });
 
     npc->fsm.addState("Eat",
-        [npc = npc.get(), &world](Blackboard& bb, float dt) {
+        [npc = npc.get(), &world](Blackboard& /*bb*/, float dt) {
             auto* loc = world.getLocation("Tavern");
             if (loc && !npc->isAtLocation(Vec2(loc->x, loc->y))) {
                 npc->moveTo(Vec2(loc->x, loc->y));
@@ -1714,7 +1707,7 @@ std::shared_ptr<NPC> createBrina(GameWorld& world, std::shared_ptr<Pathfinder> p
         });
 
     npc->fsm.addState("Socialize",
-        [npc = npc.get(), &world](Blackboard& bb, float dt) {
+        [npc = npc.get(), &world](Blackboard& /*bb*/, float dt) {
             auto* loc = world.getLocation("Square");
             if (loc && !npc->isAtLocation(Vec2(loc->x, loc->y))) {
                 npc->moveTo(Vec2(loc->x, loc->y));
@@ -1729,7 +1722,7 @@ std::shared_ptr<NPC> createBrina(GameWorld& world, std::shared_ptr<Pathfinder> p
         });
 
     npc->fsm.addState("Sleep",
-        [npc = npc.get()](Blackboard& bb, float dt) {
+        [npc = npc.get()](Blackboard& /*bb*/, float dt) {
             npc->emotions.satisfyNeed(NeedType::Sleep, 25.0f * dt);
         },
         [npc = npc.get()](Blackboard& bb) {
@@ -1737,7 +1730,7 @@ std::shared_ptr<NPC> createBrina(GameWorld& world, std::shared_ptr<Pathfinder> p
         });
 
     npc->fsm.addState("Flee",
-        [npc = npc.get(), &world](Blackboard& bb, float dt) {
+        [npc = npc.get(), &world](Blackboard& /*bb*/, float /*dt*/) {
             auto* loc = world.getLocation("SmithHouse");
             if (loc) npc->moveTo(Vec2(loc->x, loc->y));
         },
@@ -1748,7 +1741,7 @@ std::shared_ptr<NPC> createBrina(GameWorld& world, std::shared_ptr<Pathfinder> p
         });
 
     npc->fsm.addState("Combat",
-        [npc = npc.get(), &world](Blackboard& bb, float dt) {
+        [npc = npc.get(), &world](Blackboard& /*bb*/, float /*dt*/) {
             // Brina helps in combat - handled by runCombatRound
         },
         [npc = npc.get()](Blackboard& bb) {
@@ -1908,7 +1901,7 @@ std::shared_ptr<NPC> createCedric(GameWorld& world, std::shared_ptr<Pathfinder> 
     npc->trade.inventory.addItem(ITEM_TOOLS, 3);
 
     npc->fsm.addState("Trade",
-        [npc = npc.get()](Blackboard& bb, float dt) {
+        [npc = npc.get()](Blackboard& /*bb*/, float dt) {
             npc->trade.updatePrices();
             npc->emotions.satisfyNeed(NeedType::Fun, 1.0f * dt);
         },
@@ -1919,7 +1912,7 @@ std::shared_ptr<NPC> createCedric(GameWorld& world, std::shared_ptr<Pathfinder> 
         });
 
     npc->fsm.addState("Eat",
-        [npc = npc.get(), &world](Blackboard& bb, float dt) {
+        [npc = npc.get(), &world](Blackboard& /*bb*/, float dt) {
             auto* loc = world.getLocation("Tavern");
             if (loc && !npc->isAtLocation(Vec2(loc->x, loc->y))) {
                 npc->moveTo(Vec2(loc->x, loc->y));
@@ -1932,7 +1925,7 @@ std::shared_ptr<NPC> createCedric(GameWorld& world, std::shared_ptr<Pathfinder> 
         });
 
     npc->fsm.addState("Socialize",
-        [npc = npc.get(), &world](Blackboard& bb, float dt) {
+        [npc = npc.get(), &world](Blackboard& /*bb*/, float dt) {
             auto* loc = world.getLocation("Tavern");
             if (loc && !npc->isAtLocation(Vec2(loc->x, loc->y))) {
                 npc->moveTo(Vec2(loc->x, loc->y));
@@ -1946,7 +1939,7 @@ std::shared_ptr<NPC> createCedric(GameWorld& world, std::shared_ptr<Pathfinder> 
         });
 
     npc->fsm.addState("Sleep",
-        [npc = npc.get()](Blackboard& bb, float dt) {
+        [npc = npc.get()](Blackboard& /*bb*/, float dt) {
             npc->emotions.satisfyNeed(NeedType::Sleep, 25.0f * dt);
         },
         [npc = npc.get()](Blackboard& bb) {
@@ -1954,7 +1947,7 @@ std::shared_ptr<NPC> createCedric(GameWorld& world, std::shared_ptr<Pathfinder> 
         });
 
     npc->fsm.addState("Flee",
-        [npc = npc.get(), &world](Blackboard& bb, float dt) {
+        [npc = npc.get(), &world](Blackboard& /*bb*/, float /*dt*/) {
             auto* loc = world.getLocation("MerchHouse");
             if (loc) npc->moveTo(Vec2(loc->x, loc->y));
         },
@@ -2000,7 +1993,7 @@ std::shared_ptr<NPC> createCedric(GameWorld& world, std::shared_ptr<Pathfinder> 
     return npc;
 }
 
-std::shared_ptr<NPC> createDagna(GameWorld& world, std::shared_ptr<Pathfinder> pf) {
+std::shared_ptr<NPC> createDagna(GameWorld& /*world*/, std::shared_ptr<Pathfinder> pf) {
     auto npc = std::make_shared<NPC>(4, "Dagna", NPCType::Innkeeper);
     npc->position = Vec2(8.0f, 7.0f);
     npc->pathfinder = pf;
@@ -2058,7 +2051,7 @@ std::shared_ptr<NPC> createDagna(GameWorld& world, std::shared_ptr<Pathfinder> p
     npc->dialog.addTree("greeting", std::move(greetTree));
 
     npc->fsm.addState("Work",
-        [npc = npc.get()](Blackboard& bb, float dt) {
+        [npc = npc.get()](Blackboard& /*bb*/, float dt) {
             npc->emotions.satisfyNeed(NeedType::Fun, 1.0f * dt);
             npc->emotions.satisfyNeed(NeedType::Social, 3.0f * dt);
         },
@@ -2068,7 +2061,7 @@ std::shared_ptr<NPC> createDagna(GameWorld& world, std::shared_ptr<Pathfinder> p
         });
 
     npc->fsm.addState("Eat",
-        [npc = npc.get()](Blackboard& bb, float dt) {
+        [npc = npc.get()](Blackboard& /*bb*/, float dt) {
             npc->emotions.satisfyNeed(NeedType::Hunger, 25.0f * dt);
         },
         [npc = npc.get()](Blackboard& bb) {
@@ -2076,7 +2069,7 @@ std::shared_ptr<NPC> createDagna(GameWorld& world, std::shared_ptr<Pathfinder> p
         });
 
     npc->fsm.addState("Socialize",
-        [npc = npc.get()](Blackboard& bb, float dt) {
+        [npc = npc.get()](Blackboard& /*bb*/, float dt) {
             npc->emotions.satisfyNeed(NeedType::Social, 15.0f * dt);
             npc->emotions.satisfyNeed(NeedType::Fun, 8.0f * dt);
         },
@@ -2086,7 +2079,7 @@ std::shared_ptr<NPC> createDagna(GameWorld& world, std::shared_ptr<Pathfinder> p
         });
 
     npc->fsm.addState("Sleep",
-        [npc = npc.get()](Blackboard& bb, float dt) {
+        [npc = npc.get()](Blackboard& /*bb*/, float dt) {
             npc->emotions.satisfyNeed(NeedType::Sleep, 30.0f * dt);
         },
         [npc = npc.get()](Blackboard& bb) {
@@ -2140,7 +2133,7 @@ std::shared_ptr<NPC> createElmund(GameWorld& world, std::shared_ptr<Pathfinder> 
     npc->trade.inventory.addItem(ITEM_BREAD, 5);
 
     npc->fsm.addState("Work",
-        [npc = npc.get(), &world](Blackboard& bb, float dt) {
+        [npc = npc.get(), &world](Blackboard& /*bb*/, float dt) {
             auto* loc = world.getLocation("Farm");
             if (loc && !npc->isAtLocation(Vec2(loc->x, loc->y))) {
                 npc->moveTo(Vec2(loc->x, loc->y));
@@ -2154,7 +2147,7 @@ std::shared_ptr<NPC> createElmund(GameWorld& world, std::shared_ptr<Pathfinder> 
         });
 
     npc->fsm.addState("Eat",
-        [npc = npc.get(), &world](Blackboard& bb, float dt) {
+        [npc = npc.get(), &world](Blackboard& /*bb*/, float dt) {
             auto* loc = world.getLocation("Tavern");
             if (loc && !npc->isAtLocation(Vec2(loc->x, loc->y))) {
                 npc->moveTo(Vec2(loc->x, loc->y));
@@ -2169,7 +2162,7 @@ std::shared_ptr<NPC> createElmund(GameWorld& world, std::shared_ptr<Pathfinder> 
         });
 
     npc->fsm.addState("Socialize",
-        [npc = npc.get(), &world](Blackboard& bb, float dt) {
+        [npc = npc.get(), &world](Blackboard& /*bb*/, float dt) {
             auto* loc = world.getLocation("Square");
             if (loc && !npc->isAtLocation(Vec2(loc->x, loc->y))) {
                 npc->moveTo(Vec2(loc->x, loc->y));
@@ -2182,7 +2175,7 @@ std::shared_ptr<NPC> createElmund(GameWorld& world, std::shared_ptr<Pathfinder> 
         });
 
     npc->fsm.addState("Sleep",
-        [npc = npc.get()](Blackboard& bb, float dt) {
+        [npc = npc.get()](Blackboard& /*bb*/, float dt) {
             npc->emotions.satisfyNeed(NeedType::Sleep, 25.0f * dt);
         },
         [npc = npc.get()](Blackboard& bb) {
@@ -2190,7 +2183,7 @@ std::shared_ptr<NPC> createElmund(GameWorld& world, std::shared_ptr<Pathfinder> 
         });
 
     npc->fsm.addState("Flee",
-        [npc = npc.get(), &world](Blackboard& bb, float dt) {
+        [npc = npc.get(), &world](Blackboard& /*bb*/, float /*dt*/) {
             auto* loc = world.getLocation("Tavern");
             if (loc) npc->moveTo(Vec2(loc->x, loc->y));
         },
@@ -2317,7 +2310,7 @@ void scheduleWorldEvents(GameWorld& world, FactionSystem& factions,
         farhan->trade.inventory.addItem(ITEM_LEATHER, 15);
 
         farhan->fsm.addState("Trade",
-            [farhan = farhan.get()](Blackboard& bb, float dt) {
+            [farhan = farhan.get()](Blackboard& /*bb*/, float dt) {
                 farhan->emotions.satisfyNeed(NeedType::Fun, 2.0f * dt);
             },
             [farhan = farhan.get()](Blackboard& bb) {
@@ -2599,7 +2592,7 @@ void scheduleWorldEvents(GameWorld& world, FactionSystem& factions,
                 {"Bite", AbilityType::Melee, DamageType::Physical, 10.0f, 3.0f, 0.03f, 0.0f, 0.0f, 0.0f, 8.0f});
 
             wolf->fsm.addState("Hunt",
-                [wolf = wolf.get(), &w](Blackboard& bb, float dt) {
+                [wolf = wolf.get(), &w](Blackboard& /*bb*/, float /*dt*/) {
                     Vec2 target(20.0f, 12.0f);
                     float bestDist = 999.0f;
                     NPC* nearest = nullptr;

@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main ]
   pull_request:
-    branches: [ main, master ]
+    branches: [ main ]
 
 jobs:
   build-and-test:
@@ -52,7 +52,7 @@ jobs:
         env:
           CC: ${{ matrix.cc }}
           CXX: ${{ matrix.cxx }}
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DNPC_LUA_BRIDGE=ON -DNPC_SHARED=ON -DNPC_BENCHMARKS=ON -DNPC_HEADER_CHECKS=ON
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS=-Werror -DNPC_LUA_BRIDGE=ON -DNPC_SHARED=ON -DNPC_BENCHMARKS=ON -DNPC_HEADER_CHECKS=ON
 
       - name: Build
         run: cmake --build build --parallel
