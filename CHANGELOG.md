@@ -6,7 +6,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
-## [Unreleased]
+## [2.0.0] — Unreleased
 
 ### Added
 - Decision boundaries with named constraints, weighted proposals, explainable rejections, and independent per-cause random draws.
@@ -14,14 +14,16 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - Opt-in `GameWorld` and `SimulationManager` integration with movement, stamina, urgent needs, memories, and typed social events.
 - Versioned social snapshots with exact 64-bit identifiers, pending work and reservations, and atomic validation before replacing state.
 - Social demonstration, focused regression suites, and a population benchmark.
+- A 4K animated preview recorded from the native social scenario, English character names, and revised integration documentation.
 
 ### Fixed
 - Negative spatial coordinates no longer invoke undefined behavior when constructing cell keys.
 - JSON numbers preserve double precision; nonfinite values serialize as `null`, and mutable array access checks its bounds.
 - Simulation manager API mismatches, day-wrapping event timestamps, zero LOD intervals, duplicate spawns, and skill/weather subscription lifetimes.
+- The C API version string now matches the CMake project version. Shared-library version and soname metadata are set from the project version.
 
 ### Changed
-- `GameWorld` has a stable address: copying and moving are disabled because its subscriptions and perception hooks reference the world.
+- **Breaking:** `GameWorld` has a stable address: copying and moving are disabled because its subscriptions and perception hooks reference the world. Move a `std::unique_ptr<GameWorld>` when transferring ownership.
 
 ---
 
@@ -114,5 +116,6 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+[2.0.0]: https://github.com/sa-aris/aithena/compare/v1.1.0...main
 [1.1.0]: https://github.com/sa-aris/aithena/releases/tag/v1.1.0
 [1.0.0]: https://github.com/sa-aris/aithena/releases/tag/v1.0.0
