@@ -6,7 +6,11 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
-## [2.0.0] — Unreleased
+## [Unreleased]
+
+---
+
+## [2.0.0] — 2026-10-08
 
 ### Added
 - Decision boundaries with named constraints, weighted proposals, explainable rejections, and independent per-cause random draws.
@@ -116,6 +120,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
-[2.0.0]: https://github.com/sa-aris/aithena/compare/v1.1.0...main
+[Unreleased]: https://github.com/sa-aris/aithena/compare/v2.0.0...HEAD
+[2.0.0]: https://github.com/sa-aris/aithena/compare/v1.1.0...v2.0.0
 [1.1.0]: https://github.com/sa-aris/aithena/releases/tag/v1.1.0
 [1.0.0]: https://github.com/sa-aris/aithena/releases/tag/v1.0.0

@@ -3,12 +3,12 @@
 C++17 NPC simulation with explicit decision boundaries and local social consequences.
 
 [![CI](https://github.com/sa-aris/aithena/actions/workflows/ci.yml/badge.svg)](https://github.com/sa-aris/aithena/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/main-2.0.0-blue.svg)](CHANGELOG.md#200--unreleased)
+[![Version](https://img.shields.io/badge/version-2.0.0-blue.svg)](https://github.com/sa-aris/aithena/releases/tag/v2.0.0)
 [![C++17](https://img.shields.io/badge/C%2B%2B-17-blue.svg)](https://en.cppreference.com/w/cpp/17)
 [![Tests](https://img.shields.io/badge/unit_tests-203-blue.svg)](#verification)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-`main` contains the 2.0.0 development version. The latest tagged release is [v1.1.0](https://github.com/sa-aris/aithena/releases/tag/v1.1.0).
+The latest release is [v2.0.0](https://github.com/sa-aris/aithena/releases/tag/v2.0.0). See the [changelog](CHANGELOG.md#200--2026-10-08) and [migration guidance](#integration) when upgrading from 1.1.
 
 Aithena gives game characters personal knowledge, finite resources, relationships, memory, and responsibilities. Policies propose what a character might do; boundaries determine what the world permits. Choices can vary while their causes and consequences stay coherent.
 
