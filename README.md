@@ -1,669 +1,236 @@
 # Aithena
 
+C++17 NPC simulation with explicit decision boundaries and local social consequences.
+
 [![CI](https://github.com/sa-aris/aithena/actions/workflows/ci.yml/badge.svg)](https://github.com/sa-aris/aithena/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/tag/sa-aris/aithena?label=release&color=blue)](https://github.com/sa-aris/aithena/blob/main/CHANGELOG.md)
-[![Live Demo](https://img.shields.io/badge/demo-GitHub_Pages-brightgreen)](https://sa-aris.github.io/aithena/)
 [![C++17](https://img.shields.io/badge/C%2B%2B-17-blue.svg)](https://en.cppreference.com/w/cpp/17)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Header-only](https://img.shields.io/badge/header--only-yes-green.svg)](#integration)
-[![WebAssembly](https://img.shields.io/badge/WebAssembly-WASM-654FF0)](https://webassembly.org/)
-[![Lua](https://img.shields.io/badge/Lua-5.4-2C2D72?logo=lua)](https://www.lua.org/)
-[![C API](https://img.shields.io/badge/C_API-Unity%20%7C%20Unreal%20%7C%20Godot-orange.svg)](#c-api--unity--unreal--godot)
+[![Tests](https://img.shields.io/badge/unit_tests-203-blue.svg)](#verification)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-**Aithena** is a self-contained NPC AI framework for games, written in C++17. Drop the `include/` directory into any project and you get interconnected systems — from low-level pathfinding and spatial queries to high-level faction politics, relationship history, procedural quests, a living economy, and narrative-aware dialogue hooks.
+Aithena gives game characters personal knowledge, finite resources, relationships, memory, and responsibilities. Policies propose what a character might do; boundaries determine what the world permits. Choices can vary while their causes and consequences stay coherent.
 
-No dependencies. No engine lock-in. No runtime overhead you didn't ask for.
+The core uses the C++ standard library. Lua scripting, C bindings, and the WebAssembly demo are optional. Individual simulation modules are header-only; the composed `NPC` and `GameWorld` runtime links against `npc_lib`.
 
-![Aithena demo](demo.gif)
+[Quick start](#quick-start) · [Decision model](#decision-model) · [Systems](#systems) · [Integration](#integration) · [Benchmarks](#benchmarks)
 
----
+[![A seeded social simulation: Ada completes the repair shift, Derya sends support, and Baran misses the duty while evidence spreads between people.](demo.gif)](examples/social_contract_demo.cpp)
 
-## Live Demo
+*Recorded C++ state from the communal repair scenario, seed `123`. Private intentions, physical progress, evidence paths, and reputation are visualized separately.*
 
-**[→ sa-aris.github.io/aithena](https://sa-aris.github.io/aithena/)** — compiled to WebAssembly via Emscripten, runs entirely in the browser.
+Run the scenario with `./build/social_contract_demo 123`. The [browser village demo](https://sa-aris.github.io/aithena/) provides an interactive view of emotions, memory decay, and social influence chains.
 
-A five-NPC village simulation plays out in real time. The demo visualises:
-- Emotional state of each NPC with colour-coded contagion spreading between nearby characters
-- Memory decay as NPCs gradually forget events (strength bars update live)
-- Social influence chains as rumours and beliefs propagate across the social graph hop by hop
+## Quick start
 
-Controls: Play/Pause, Reset, Speed ×1–×8.
+Requirements: a C++17 compiler and CMake 3.16 or newer.
 
----
-
-## What it does
-
-A single `NPC` object composes every subsystem automatically. The systems talk to each other through a typed event bus — combat damage triggers emotional responses, emotional state influences trade pricing, daily schedules yield to perceived threats, faction stance changes cascade through alliance chains. Everything is connected, nothing is hardcoded.
-
-```cpp
-#include "npc/npc.hpp"
-#include "npc/world/world.hpp"
-
-auto guard = std::make_shared<npc::NPC>(1, "Aldric", npc::NPCType::Guard);
-guard->personality = npc::PersonalityTraits::brave();
-guard->combat.stats.maxHealth = 120.f;
-guard->fsm.addState("patrol",  patrolBehavior);
-guard->fsm.addState("combat",  combatBehavior);
-guard->fsm.addState("wounded", woundedBehavior);
-guard->fsm.setInitialState("patrol");
-
-world.addNPC(guard);
-guard->subscribeToEvents(world.events());
-```
-
-That's the whole setup. The guard will now patrol, react to threats, remember attacks, feel fear when wounded, and gossip about the wolf that bit him with anyone nearby.
-
----
-
-## Systems
-
-### AI Decision-Making
-
-**Decision boundaries and social contracts** — Policies propose weighted choices inside named constraints on knowledge, time, physical access, and resources. Stable per-cause draws keep unrelated events from shifting a choice. Private intentions become social evidence only through completed work, missed duties, observation, and local conversation. Characters interpret the same evidence through their own norms and relationships. Includes opt-in world integration and versioned saves. See the [architecture and integration guide](docs/social-boundaries.md), or run `./build/social_contract_demo 42`.
-
-**Finite State Machine** — State-based behavior with guarded transitions, priority ordering, and per-state blackboard access. States can be nested or composed with behavior trees at the leaf level.
-
-**Behavior Tree** — Full composite/decorator/leaf architecture with a fluent builder API. Includes `ServiceNode` for background polling, `TimeoutDecorator`, `RetryDecorator`, and a `RandomSelectorNode` with per-child weights. The tree exposes a `debugSnapshot()` that dumps the full execution trace with tick counts and last-known status — useful for editor tooling.
-
-```cpp
-auto bt = npc::BehaviorTreeBuilder()
-    .selector()
-        .sequence()
-            .condition("enemy_visible", [](auto& bb){ return bb.getOr<bool>("enemy_in_sight", false); })
-            .action("attack", attackFn)
-        .end()
-        .withTimeout(
-            npc::BehaviorTreeBuilder().action("search", searchFn).build(),
-            8.0f  // give up after 8 seconds
-        )
-        .action("patrol", patrolFn)
-    .end()
-    .build();
-```
-
-**Utility AI** — Score-based decision-making. Each action defines a set of considerations (linear, sigmoid, exponential, or bell-curve response curves) that are multiplied together to produce a final score. The highest-scoring action wins. Works standalone or as a fallback layer beneath the FSM.
-
-**GOAP** — Goal-Oriented Action Planning. NPCs define world states, goals, and actions with preconditions and effects. The planner finds the cheapest action sequence via A* over the state space. Suitable for complex multi-step behaviors like "get food" → "earn money" → "buy from merchant" → "eat".
-
-### Perception & Memory
-
-**Perception** — Configurable sight cone (angle + range), hearing radius with noise levels, and line-of-sight checking via the pathfinder's Bresenham implementation. Outputs `PerceivedEntity` records with staleness tracking — NPCs remember where they last saw a threat even after it disappears.
-
-**Memory** — Time-stamped episodic memories with emotional impact scores and importance weights. Memories decay based on importance (trivial events fade quickly, traumatic ones persist). Three decay stages emit narrative events: *Fading* (strength < 0.9), *Nearly Forgotten* (< 0.35), and *Forgotten* (0.0). Hearsay memories received through gossip decay four times faster than first-hand observations. Supports gossip propagation: an NPC can receive a memory second-hand with trust-based reliability degradation.
-
-```cpp
-// Heard from someone who heard from someone else
-memory.receiveGossip(combatMemory, tellerId, tellerTrust, simTime);
-// Hearsay decays 4× faster; reliability degrades per hop
-
-// Drain narrative events each frame:
-for (auto& evt : npc.memory.drainFadeEvents()) {
-    if (evt.stage == MemoryFadeStage::Forgotten)
-        fmt::print("{} no longer remembers: {}\n", npc.name, evt.snapshot.description);
-}
-```
-
-### Emotion & Needs
-
-**Emotion System** — Seven discrete emotion types (happy, sad, angry, fearful, disgusted, surprised, neutral) with intensity and duration. Emotions decay over time and influence downstream systems: fear reduces combat aggression, anger increases it, sadness lowers trade acceptance thresholds.
-
-**Needs** — Sims-style need bars (hunger, thirst, sleep, social, fun, safety, comfort) that deplete over time and drive schedule priorities. An NPC with critically low safety need will refuse to leave a building regardless of their assigned work schedule.
-
-**Emotional Contagion** — NPCs within hearing range share emotional states scaled by personality empathy coefficient and proximity. A frightened NPC running through a market can trigger a cascade of anxiety in nearby villagers. The terminal demo renders contagion live with ANSI-coloured intensity bars and a per-step propagation table.
-
-### Navigation
-
-**Pathfinding** — A* on a uniform grid with configurable node budget, tie-break weighting, and 8-directional movement. The `NavRegions` subsystem runs a flood-fill to precompute connected components, enabling O(1) reachability checks before A* is even attempted. Dynamic obstacles invalidate the LRU path cache automatically.
-
-```
-start ──── NavRegions check (O(1)) ──── same region? ──── A* query
-                                              │
-                                           no │ → return immediately (unreachable)
-```
-
-Supports partial paths (closest reachable point when goal is blocked), Catmull-Rom spline smoothing, and a `WaypointGraph` for sparse navigation over large open worlds. Path requests can be queued at three priority levels and processed in budget-limited batches per frame.
-
-**Steering** — Separate steering layer for smooth movement: seek, flee, wander, arrival, obstacle avoidance, separation, cohesion, alignment. Output is a steering force that callers blend with their own movement logic.
-
-### Social & Faction
-
-**Faction System** — Multi-faction diplomacy with six stance types: Peace, Alliance, War, Trade, Vassal, and Truce. War declarations cascade through alliance chains — allies auto-join, vassals follow their overlord. Truces carry expiry timers and transition back to Peace automatically.
-
-```cpp
-// Kingdom declares war on Empire — Alliance members and Vassals auto-join
-factions.declareWar(KINGDOM, EMPIRE, "border dispute", simTime, /*cascade=*/true);
-
-// Full coalition resolution: who's on each side?
-auto coalition = factions.resolveCoalition(KINGDOM, EMPIRE);
-// coalition.aggressorSide = { KINGDOM, DUCHY, CITY_STATE }
-// coalition.defenderSide  = { EMPIRE, PROTECTORATE }
-```
-
-**Relationship System** — Directed relationship graph where every interaction is recorded as a typed event (`Saved`, `Betrayed`, `Attacked`, `Gifted`, `Lied`, …). Each event carries a delta, magnitude, timestamp, and location. Values decay toward neutral over time; a separate trust channel degrades on betrayal and is harder to rebuild.
-
-The key feature: NPCs can recall specific events and reason about them in dialogue.
-
-```cpp
-// Hero saved merchant 24 sim-hours ago
-rs.recordEvent("hero", "merchant", RelationshipEventType::Saved, simTime);
-
-// Later, merchant greets the player:
-auto recall = rs.recallSentence("merchant", "hero", RelationshipEventType::Saved, now);
-// → "hero saved merchant [1 day ago]"
-
-// Full narrative:
-rs.narrative("merchant", "hero", now);
-// → "merchant feels Close Friend toward hero [72/100, High Trust].
-//    Notably, hero saved merchant (1 day ago).
-//    Recent interactions: hero gifted merchant (3h ago); hero helped merchant (5h ago)."
-```
-
-**Social Influence Chains** — Beliefs and rumours propagate organically through the social graph. An `InfluenceMessage` starts with an originator, a topic, a charge (−1 to +1), and a reliability of 1.0. Each hop degrades reliability by the receiver's empathy coefficient; charges mutate as the message passes through each personality. Below reliability 0.30 the content distorts. The system records the full chain (`"Alaric ⟶ Brina ⟶ Dagna ⟶ Gareth"`) and emits a hop record for every transfer — useful for debugging propaganda spread or building in-game rumour mechanics.
-
-```cpp
-g_influence.seed({msgId, "wolves at the gate", originatorId, "Alaric",
-                  /*charge=*/-0.85f, /*reliability=*/1.0f, simTime});
-
-// Each frame, pairs within social range probabilistically propagate:
-// reliability *= receiver.personality.empathyMultiplier()
-// charge      *= receiver.personality.empathyMultiplier()
-// if reliability < 0.30 → charge gets random distortion
-```
-
-**Group Behavior** — Formation system (line, wedge, circle, column) with slot assignment, leader-follower command propagation, and tactical roles (Leader, Vanguard, Flanker, Support, Archer). Group morale aggregates individual emotional states and feeds back into member behavior.
-
-### World Infrastructure
-
-**Event Bus** — Typed publish-subscribe with priority ordering, delayed events (min-heap scheduler), event chains (A → B transforms), filter predicates, RAII subscription lifetime, and a circular history buffer. Everything in the system communicates through this bus.
-
-**Shared Blackboard** — World-level key-value store with TTL expiry, per-key version counters, and prefix-scoped watcher callbacks. The `WorldBlackboard` layer provides typed accessors for standard namespaces (`world/*`, `market/*`, `faction/*`, `combat/*`, `event/*`). A `BlackboardSync` bridge lets NPCs pull relevant world state into their local blackboard each frame.
-
-**Spatial Index** — Two-layer spatial query system. `SpatialGrid` is a flat hash-grid providing O(1) insert/update/remove and O(k) radius queries. `QuadTree` handles non-uniform distributions with adaptive subdivision. The `SpatialIndex` facade exposes unified queries: `nearby`, `nearestN`, `closestExcept`, `inRect`, `findClusters` (BFS-based).
-
-**LOD System** — Three-tier level-of-detail scheduler (Active / Background / Dormant) with hysteresis to prevent tier flickering, importance scoring for quest NPCs and bosses, velocity prediction for early promotion of approaching entities, group-based tier elevation, and per-frame CPU budget tracking. Background and Dormant NPCs accumulate delta-time between ticks so physics-independent simulation stays accurate.
-
-**Simulation Manager** — Orchestrates the full update pipeline each frame in the correct order: event bus drain → time system → weather → world events → LOD classification → AI ticks → spatial index sync → autosave. Handles NPC spawn/despawn with automatic event subscription cleanup.
-
-**Serialization** — Zero-dependency JSON parser/writer with full spec support and a friend-accessor-based NPC serializer. Saves full NPC state including personality, combat stats, emotion intensities, skill levels, and memory content. Supports incremental diffs for bandwidth-efficient sync.
-
-### Living World *(new in 1.1)*
-
-**Reputation & Crime** — Reputation is what the *community* believes about an NPC, complementing the relationship system's one-to-one feelings. Crimes (trespassing → murder) only damage reputation if witnessed; unwitnessed crimes are stored as unsolved cases that can surface later through investigation or gossip. Serious witnessed crimes post gold bounties, and guards act on outlaws on sight. A per-witness hook lets you fan crime reports out through the memory/gossip systems.
-
-```cpp
-ReputationSystem rep;
-rep.onCrimeWitnessed = [&](const std::string& witness, const CrimeRecord& crime) {
-    // push a Memory into the witness → it spreads through gossip organically
-};
-rep.recordCrime(CrimeType::Theft, "Fennick", "Cedric", simTime, {"Alaric"});
-rep.isOutlaw("Fennick");        // true once bounty is posted
-rep.totalBountyOn("Fennick");   // 60g
-```
-
-**Dynamic Economy** — Settlement-level production/consumption simulation that feeds the per-merchant `TradeSystem`. Producers convert inputs into goods on labor-hour schedules (farmer → wheat → baker → bread), populations consume stockpiles daily, local prices follow a `(target/stock)^elasticity` curve, and caravans automatically arbitrage price gaps between settlements — creating supply lines you can raid or protect.
-
-**Procedural Quest Generator** — Instead of hand-authoring quests, the generator inspects live world state and turns it into ready-to-register `Quest` objects: unsolved bounty crimes become manhunts, market shortages become supply runs, mutual feuds become mediation quests, close friendships spawn gift deliveries, and caravans on the road request escorts. Every source situation is fingerprinted so the same feud never spawns duplicates.
-
-**Family & Lifecycle** — Households, marriage (optionally gated on relationship values, with kinship checks), children, aging through four life stages, mortality that ramps past elder age, and inheritance that splits estates between spouse and children. All transitions surface as `LifecycleEvent`s you can drain into the event bus, memories, or quest generation — enough to run generational sims.
-
-**Sound Perception** — Discrete noise events (a scream, a door slam, steel on steel) emitted into the world, attenuated by distance and walls, delivered to whoever could hear them. Faint sounds are localized poorly — listeners get a degraded position estimate to investigate. Bridges directly into `PerceptionSystem` as `SensoryInput`.
-
-**World Save/Load** — `WorldSaveGame` bundles relationships (with event history), reputation & crimes, economy state, and families into one versioned JSON file, with custom section hooks for game-specific data. Round-trips through the zero-dependency JSON layer.
-
-```cpp
-WorldSaveGame sg;
-sg.relationships = &rel;  sg.reputation = &rep;
-sg.economy       = &eco;  sg.families   = &fam;
-sg.save("world.json", simTime);
-auto restoredTime = sg.load("world.json");  // std::optional<double>
-```
-
-### Threading
-
-**Thread-Safety Layer** — Optional thread-safe wrappers for the event bus, spatial index, and shared blackboard using `std::shared_mutex` for concurrent reads. `TaskScheduler` is a priority-aware thread pool exposing `submitAsync<T>() → std::future<T>`. `ParallelNPCTicker` distributes Background and Dormant ticks across worker threads while Active ticks remain on the main thread for safe world access.
-
-### Other
-
-**Combat** — Threat assessment and target selection, ability system with cooldowns, stamina/mana resource pools, damage type resistances, and automatic flee/heal decision thresholds driven by the personality system.
-
-**Trade** — Supply/demand pricing with scarcity multipliers, personality-based markup/markdown, buy/sell/barter transactions, and relationship-based discount application.
-
-**Schedule** — Time-of-day activity planner. Each NPC has a weekly template with named activities and location targets. High-priority needs and external events (combat, severe weather) can override scheduled activities.
-
-**Dialogue** — Branching dialogue trees with condition evaluation, reputation-based text variants, and side-effect callbacks. Dialogue outcomes publish events to the bus, which other NPCs can observe.
-
-**Quest** — Quest definition, assignment, progress tracking, condition evaluation, and completion/failure events with full EventBus integration.
-
-**Skills** — Six skill domains (Combat, Trade, Farming, Crafting, Social, Leadership) with XP gain, level thresholds, perk unlocks, and bonus application to dependent subsystems. Skill XP is awarded automatically by subscribing to the event bus.
-
----
-
-## Architecture
-
-```
-                          ┌──────────────────────────────────────────┐
-                          │              GameWorld                   │
-                          │   TimeSystem  WeatherSystem  EventBus    │
-                          │   SpatialIndex  SharedBlackboard         │
-                          └──────────────┬───────────────────────────┘
-                                         │ SimulationManager
-                          ┌──────────────▼───────────────────────────┐
-                          │                LOD System                │
-                          │  Active (full tick) │ Background │ Dormant│
-                          └──────┬─────────────┴──────┬─────────────┘
-                                 │                    │ (parallel workers)
-                    ┌────────────▼──────────┐         │
-                    │          NPC          │         │
-                    ├───────────────────────┤         │
-                    │  FSM ←→ BehaviorTree  │         │
-                    │  UtilityAI   GOAP     │         │
-                    │  Blackboard           │         │
-                    ├───────────────────────┤         │
-                    │  Perception  Memory   │         │
-                    │  Emotion     Needs    │         │
-                    │  Personality          │         │
-                    ├───────────────────────┤         │
-                    │  Combat  Trade        │         │
-                    │  Dialog  Quest        │         │
-                    │  Schedule  Skills     │         │
-                    ├───────────────────────┤         │
-                    │  Pathfinder  Steering │         │
-                    └────────────┬──────────┘         │
-                                 │                    │
-                          ┌──────▼────────────────────▼──────────────┐
-                          │    Typed EventBus (pub-sub, priority,    │
-                          │    delayed dispatch, chain transforms)   │
-                          └──────────────────────────────────────────┘
-```
-
-Every NPC is a composition of systems. No inheritance hierarchy, no virtual dispatch in the hot path. The NPC class itself is a plain aggregate with a main `update()` method — all behavior logic lives in the subsystems.
-
----
-
-## Building
-
-```bash
+```sh
 git clone https://github.com/sa-aris/aithena.git
 cd aithena
-cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DNPC_LUA_BRIDGE=OFF
 cmake --build build --parallel
+ctest --test-dir build --output-on-failure
+./build/social_contract_demo 123
 ```
 
-**Requirements:** C++17 (GCC 9+, Clang 10+, MSVC 19.20+), CMake 3.16+
+On Windows, executable names end in `.exe`. Multi-configuration generators use `cmake --build build --config Release` and `ctest --test-dir build -C Release`; executables are normally under `build/Release/`.
 
-### Lua scripting bridge
+The social demo follows five people around a communal repair duty. Changing its seed changes admissible choices. The village demo exercises the broader framework:
 
-Requires Lua 5.4. On Ubuntu: `sudo apt install liblua5.4-dev`
-
-```bash
-cmake -B build -DCMAKE_BUILD_TYPE=Release -DNPC_LUA_BRIDGE=ON
-cmake --build build --target lua_village
-./build/lua_village examples/scripts
-```
-
-NPC behaviours are defined entirely in Lua — no C++ FSM lambdas required:
-
-```lua
--- examples/scripts/guard.lua
-function guard_enter_combat(npc)
-    npc:log("Enemy spotted! Drawing sword!")
-    npc:addEmotion("Angry", 0.9, 4.0)
-    npc:depletNeed("Safety", 30.0)
-    npc:rememberEvent("Entered combat", -0.6)
-end
-
-function guard_update_combat(npc, dt)
-    if npc:getHealthPercent() <= 0.25 then
-        npc:setState("flee")
-    end
-end
-```
-
-```cpp
-// C++ side — one call wires the Lua function into the FSM
-bridge.addLuaState(guard->fsm, "combat", guard.get(),
-                   "guard_update_combat",
-                   "guard_enter_combat",
-                   "guard_exit_combat");
-```
-
-The bridge exposes a full NPC API to Lua: position, health, emotions, needs, blackboard keys, FSM transitions, memory, movement, and `world_time()` / `world_hour()` globals. If Lua 5.4 is not installed, the bridge target is silently skipped and the rest of the build is unaffected.
-
-### C API — Unity / Unreal / Godot
-
-Build a shared library exposing a pure-C interface:
-
-```bash
-cmake -B build -DCMAKE_BUILD_TYPE=Release -DNPC_SHARED=ON
-cmake --build build --target npc_shared
-# → build/libnpc_shared.so  (Linux)
-# → build/npc_shared.dll    (Windows)
-```
-
-The header `include/npc/npc_capi.h` is plain C — no C++ required on the consumer side. Drop the shared library and the header into any engine that supports a C FFI.
-
-**Unity (C# P/Invoke)**
-
-```csharp
-using System.Runtime.InteropServices;
-
-public class NpcBinding : MonoBehaviour
-{
-    const string Lib = "npc_shared";
-
-    [DllImport(Lib)] static extern IntPtr npc_world_create(int w, int h);
-    [DllImport(Lib)] static extern void   npc_world_update(IntPtr world, float dt);
-    [DllImport(Lib)] static extern IntPtr npc_create(IntPtr world, uint id,
-                                                      string name, int type);
-    [DllImport(Lib)] static extern void   npc_deal_damage(IntPtr npc, float amount);
-    [DllImport(Lib)] static extern float  npc_get_health_percent(IntPtr npc);
-    [DllImport(Lib)] static extern float  npc_get_mood(IntPtr npc);
-    [DllImport(Lib)] static extern void   npc_fsm_set_state(IntPtr npc, string state);
-    [DllImport(Lib)] static extern void   npc_world_destroy(IntPtr world);
-
-    IntPtr _world;
-    IntPtr _guard;
-
-    void Start() {
-        _world = npc_world_create(64, 64);
-        _guard = npc_create(_world, 1, "Aldric", 0 /* NPC_TYPE_GUARD */);
-    }
-
-    void Update() {
-        npc_world_update(_world, Time.deltaTime);
-
-        if (npc_get_health_percent(_guard) < 0.25f)
-            npc_fsm_set_state(_guard, "flee");
-    }
-
-    void OnDestroy() => npc_world_destroy(_world);
-}
-```
-
-**Unreal Engine (native plugin)**
-
-```cpp
-// MyNPCPlugin.h — include the plain-C header, no engine conflicts
-#include "npc/npc_capi.h"
-
-// In BeginPlay:
-World = npc_world_create(128, 128);
-Guard = npc_create(World, UniqueId, TCHAR_TO_ANSI(*NpcName), NPC_TYPE_GUARD);
-
-// Register an Unreal delegate as a C callback:
-npc_world_on_combat_event(World,
-    [](const char* json, void* ud) {
-        UE_LOG(LogTemp, Warning, TEXT("CombatEvent: %s"), UTF8_TO_TCHAR(json));
-    }, nullptr);
-```
-
-**Godot (GDExtension)**
-
-```cpp
-// In _process(double delta):
-npc_world_update(world_, static_cast<float>(delta));
-
-NpcVec2 pos = npc_get_position(guard_);
-set_position(Vector2(pos.x, pos.y));
-
-// Mood drives animation blend tree:
-float mood = npc_get_mood(guard_);
-animation_tree_->set("parameters/MoodBlend/blend_amount", mood);
-```
-
-The full C API covers: world lifecycle and clock, NPC create/destroy, position and movement, health and combat, emotions and needs (7 types each), FSM with C function-pointer callbacks, blackboard (float / int / bool / string), episodic memory, and a standalone `RelationshipSystem` with narrative recall.
-
-### Run the demo
-
-```bash
+```sh
+./build/social_contract_demo 7
+./build/social_contract_demo 42
 ./build/village_sim
 ```
 
-Simulates a medieval village with six NPCs over one full day. Guards patrol, merchants trade, the blacksmith works her forge, and a wolf pack attacks at dusk — triggering combat, emotional responses, and shared fear. The simulation renders:
+## Decision model
 
-- **Emotion contagion table** — ANSI-coloured intensity bars updated each in-game hour, showing which NPCs are spreading their emotional state to nearby characters
-- **Memory decay narrative** — stage-by-stage output as memories fade (`[FADING]`, `[NEARLY FORGOTTEN]`, `[FORGOTTEN]`) with end-of-day memory strength bars per NPC
-- **Influence chain log** — hop-by-hop propagation of three seeded rumours (strange tracks, wolf attack, heroic defence), printed in full with reliability and charge at each step
+An intention, an action, and someone else's account of that action are separate state.
 
-### Run the tests
-
-```bash
-./build/run_tests         # compact output
-./build/run_tests -v      # verbose with per-test results
-ctest --test-dir build    # via CTest
+```mermaid
+flowchart LR
+    K[Personal knowledge] --> P[Weighted proposals]
+    P --> B[Named boundaries]
+    B --> I[Private intention]
+    I --> W[Physical work]
+    W --> E[Outcome evidence]
+    E --> C[Local conversation]
+    E --> J[Personal judgment]
+    C --> J
+    J --> R[Relationships and reputation]
 ```
 
----
+`DecisionBoundary` evaluates proposals against named, read-only guards. Rejected options retain their reasons. Valid options enter a weighted draw keyed by seed, cause, participants, and action ID. Reordering proposals or consuming randomness elsewhere does not shift that decision's draw.
 
-## Integration
+`SocialContractSystem` applies this model to requests, promises, appointments, and customary duties:
 
-The entire framework is header-only. Copy `include/npc/` into your project and add the directory to your include path:
+- **Knowledge:** a person must learn about a duty with enough notice. Opening a duty does not give every character knowledge of it.
+- **Intent:** fulfillment reserves effort; a private refusal remains private until the deadline. Remote support is a separate action with partial credit.
+- **Work:** arrival, availability, resources, personal limits, and host-defined prerequisites are rechecked. Sustained work takes time, and interruptions reset progress.
+- **Evidence:** outcomes reach people through direct knowledge or nearby conversation. Reports carry confidence, versions, and acyclic source paths. Conversations have finite attention.
+- **Judgment:** responsibility and sympathy shape each observer's response. Repeated reports cannot apply the same contribution twice. Verified corrections retract the earlier contribution, including when a displayed score has reached its limit.
 
-```cmake
-target_include_directories(your_target PRIVATE path/to/NPC/include)
-```
+The host supplies the situations, perception inputs, and game rules. The framework supplies the constraints and state transitions. See the [architecture and integration guide](docs/social-boundaries.md) for the contracts, save format, capacity limits, and scheduling model.
 
-The `src/` directory contains thin `.cpp` translation units that prevent symbol duplication in multi-TU builds. If you're dropping the headers directly into a single-TU project, these are optional.
-
-### Minimal example
+## A small social world
 
 ```cpp
 #include "npc/npc.hpp"
 #include "npc/world/world.hpp"
+#include <iostream>
+#include <memory>
 
 int main() {
-    npc::GameWorld world(64, 64);
+    npc::GameWorld world(24, 12);
 
-    auto npc = std::make_shared<npc::NPC>(1, "Mira", npc::NPCType::Merchant);
-    npc->position = {32.f, 32.f};
+    auto ada = std::make_shared<npc::NPC>(1, "Ada", npc::NPCType::Villager);
+    auto mira = std::make_shared<npc::NPC>(2, "Mira", npc::NPCType::Villager);
+    ada->position = {5, 4};
+    mira->position = {2, 4};
+    ada->verbose = mira->verbose = false;
+    world.addNPC(ada);
+    world.addNPC(mira);
+    world.enableSocialSimulation();
 
-    // Give her something to do
-    npc->fsm.addState("idle", [](npc::NPC& n, float dt, npc::GameWorld&){
-        n.emotions.update(dt);
-        n.memory.update(dt);
-    });
-    npc->fsm.setInitialState("idle");
+    auto& social = world.social();
+    social.setSeed(123);
+    social.relationships().setValue("Ada", "Mira", 65);
 
-    world.addNPC(npc);
-    npc->subscribeToEvents(world.events());
+    npc::SocialContract duty;
+    duty.id = 100;
+    duty.actor = ada->id;
+    duty.beneficiary = mira->id;
+    duty.topic = "repair the shared fence";
+    duty.openedAt = social.time();
+    duty.deadline = social.time() + 2.0;
+    duty.workDuration = 0.25;
+    if (!social.open(duty) || !social.inform(ada->id, duty.id)) return 1;
 
-    // Tick
-    for (int i = 0; i < 100; ++i)
-        world.update(0.016f);   // 60 Hz
-
-    return 0;
+    // Time is expressed in game hours: 0.1 = six game minutes.
+    for (int i = 0; i < 60; ++i) world.update(0.1f);
+    std::cout << npc::contractPhaseName(social.contract(duty.id)->phase) << '\n';
 }
 ```
 
-### Using the Faction and Relationship systems
+The world adapter connects intentions to movement, stamina, memories, and typed `SocialEvent` values. Combat, urgent needs, or a `social_available` blackboard flag can pause participation. Social simulation is opt-in, so existing FSM, behavior tree, utility, and GOAP setups can remain in use.
 
-These are world-level systems, not per-NPC. Construct them once and pass references where needed:
+## Systems
 
-```cpp
-npc::FactionSystem  factions;
-npc::RelationshipSystem rs;
+Components are designed for direct use as well as composition. Shared world systems are connected through explicit references, callbacks, and the typed event bus.
 
-factions.addFaction(1u, "Merchants Guild");
-factions.addFaction(2u, "Thieves Guild");
-factions.addMember(1u, merchant->id);
+| Area | Components |
+| --- | --- |
+| Decisions | Finite state machines, behavior trees, utility scoring, GOAP, decision boundaries, local/shared blackboards |
+| Perception | Sight and hearing, line-of-sight checks, remembered observations, spatial sound events |
+| Memory and emotion | Episodic memories, decay stages, hearsay reliability, emotions, needs, emotional contagion |
+| Navigation | A*, connected regions, path caching, waypoint graphs, path smoothing, steering |
+| Social simulation | Contracts, evidence propagation, relationships and history, reputation, witnessed crimes, factions, formations |
+| Living world | Economy and production chains, caravans, procedural quests, families, aging, inheritance |
+| Character behavior | Combat, trade, daily schedules, dialogue, quests, skills and perks |
+| World runtime | Clock and calendar, weather, events, spatial queries, LOD, NPC spawn/despawn |
+| Persistence | JSON, NPC snapshots, world save sections, versioned social snapshots |
+| Optional integrations | Lua 5.4, C ABI, WebAssembly, thread-safe wrappers and background task scheduling |
 
-factions.declareWar(1u, 2u, "stolen shipment", simTime);
+Browse the implementations in [include/npc](include/npc), the [examples](examples), and the [changelog](CHANGELOG.md).
 
-// Record that the thief attacked the merchant
-rs.recordEvent("thief_01", "merchant_05",
-               npc::RelationshipEventType::Attacked, simTime);
+## Integration
 
-// Later — merchant remembers
-auto sentence = rs.recallSentence("merchant_05", "thief_01",
-                                   npc::RelationshipEventType::Attacked, now);
-// → "thief_01 attacked merchant_05 [2 days ago]"
+### C++
+
+For the composed runtime, add Aithena to a CMake project and link its library:
+
+```cmake
+add_subdirectory(path/to/aithena aithena-build)
+target_link_libraries(your_game PRIVATE npc_lib)
 ```
 
-### Spatial queries
+For a standalone module such as `DecisionBoundary` or `SocialContractSystem`, add `include/` to your include path. These modules need no Aithena translation units.
 
-```cpp
-npc::SpatialIndex spatial(10.f);  // 10-unit cell size
+`GameWorld` has a stable address and cannot be copied or moved because its hooks refer to the world. Keep it alive longer than its `SimulationManager`. Social state is single-threaded; serialize access to it. Parallel background ticking and thread-safe wrappers are separate, optional facilities.
 
-// Sync positions
-for (auto& npc : world.npcs())
-    spatial.insert(npc->id, npc->position);
+### Lua
 
-// Query
-auto threats = spatial.nearby(guardPos, 30.f);
-auto nearest = spatial.closest(npc->position);
-auto clusters = spatial.findClusters(5.f);  // BFS grouping
+Install Lua 5.4 development headers and libraries, then enable the bridge:
+
+```sh
+cmake -S . -B build-lua -DCMAKE_BUILD_TYPE=Release -DNPC_LUA_BRIDGE=ON
+cmake --build build-lua --target lua_village --parallel
+./build-lua/lua_village examples/scripts
 ```
 
-### LOD-aware simulation
+On Ubuntu, the development package is `liblua5.4-dev`. If Lua is unavailable, CMake reports it and skips the bridge. See the [Lua example](examples/lua_village.cpp) and [behavior scripts](examples/scripts).
 
-```cpp
-npc::LODSystem lod;
-lod.setConfig({
-    .activeRadius     = 60.f,
-    .backgroundRadius = 200.f,
-    .minDwellSecs     = 1.5f,
-});
-lod.setPlayerPosition(playerPos);
+### C ABI
 
-// Mark quest NPCs as important — larger effective active radius
-lod.setImportance(questNPCId, 0.8f);
-lod.pin(bossId, npc::LODTier::Active);  // always fully ticked
+Build a shared library for engines that support native C bindings:
 
-lod.update(worldNPCs, simTime, dt);
-
-for (auto id : lod.toTickThisFrame(npc::LODTier::Active))
-    npcs[id]->update(dt, world);
-
-for (auto id : lod.toTickThisFrame(npc::LODTier::Background)) {
-    float accum = lod.consumeAccumDt(id);
-    npcs[id]->emotions.update(accum);
-    npcs[id]->memory.update(accum);
-}
-// Dormant NPCs: emotions only, once every ~20 frames
+```sh
+cmake -S . -B build-capi -DCMAKE_BUILD_TYPE=Release -DNPC_LUA_BRIDGE=OFF -DNPC_SHARED=ON
+cmake --build build-capi --target npc_shared --parallel
 ```
 
----
+The outputs are `libnpc_shared.so` on Linux, `libnpc_shared.dylib` on macOS, and `npc_shared.dll` on Windows. The [C header](include/npc/npc_capi.h) exposes world/NPC lifecycle, movement, combat, emotions, memories, FSM callbacks, blackboards, and relationship queries. Use P/Invoke in Unity, native bindings in Unreal, or GDExtension in Godot. The social-contract module is currently a C++ interface.
 
-## Performance
+### WebAssembly
 
-Measured on a single core, GCP VM (8 vCPU), `-O3 -march=native`, C++17, 20 iterations averaged.
-Run the full suite yourself: `cmake -B build -DNPC_BENCHMARKS=ON -DCMAKE_BUILD_TYPE=Release && cmake --build build --target run_benchmarks && ./build/run_benchmarks`
+With an Emscripten SDK configured:
 
-### Full NPC tick — `world.update()`, all systems, 1 frame
+```sh
+emcmake cmake -S . -B build-wasm -DCMAKE_BUILD_TYPE=Release -DNPC_LUA_BRIDGE=OFF
+cmake --build build-wasm --target npc_wasm --parallel
+```
 
-The full tick runs FSM, emotions, needs, perception, contagion, memory, blackboard, and movement for every NPC. Contagion and perception both loop over all other NPCs, making this **O(N²)**. The LOD system is the production mitigation.
+[web/index.html](web/index.html) consumes the generated `npc_wasm.js` and `npc_wasm.wasm`. Serve all three files from the same directory over HTTP. The [Pages workflow](.github/workflows/pages.yml) builds and deploys this browser demo.
 
-| Active NPCs | Frame time | 60 Hz budget remaining |
-|-------------|-----------|----------------------|
-| 50  | 0.10 ms | 99.4% |
-| 100 | 0.29 ms | 98.3% |
-| 250 | 1.39 ms | 91.6% |
-| 500 | 5.07 ms | 69.6% |
-| 1 000 | 19.2 ms | 0% (over budget) |
+### Save and load
 
-**Rule of thumb: keep active-tick NPCs below ~300 for comfortable 60 Hz.** Use the LOD system to demote distant NPCs to background or dormant tiers.
+`NpcSerializer` handles individual NPC state. `WorldSaveGame` combines shared systems and custom sections. `SocialSerializer` persists contracts, unfinished work, evidence, reservations, and opinion ledgers; a malformed social snapshot leaves that section's current state intact. See [save integration](docs/social-boundaries.md#save-and-load).
 
-### Isolated subsystems
+## Verification
 
-| Subsystem | Count | Frame time |
-|-----------|-------|-----------|
-| Emotion + needs update | 10 000 | 0.61 ms |
-| FSM update (3 states, transitions) | 10 000 | 1.80 ms |
-| FSM update (3 states, transitions) | 50 000 | 10.6 ms |
-| Memory system decay | 10 000 | 0.84 ms |
-| SpatialGrid update | 50 000 | 0.32 ms |
-| SpatialGrid radius query | 50 000 | 0.006 ms |
+The current native suites contain **203 unit tests**, plus a social-demo smoke check:
 
-### Pathfinding — A\*
+| Suite | Tests | Focus |
+| --- | ---: | --- |
+| `run_tests` | 137 | Existing components and living-world systems |
+| `social_contract_tests` | 40 | Boundaries, resources, sustained work, evidence, gossip, correction |
+| `social_world_tests` | 11 | Movement, stamina, urgent needs, LOD, lifecycle, core fixes |
+| `social_save_tests` | 15 | Save validation, pending work, evidence paths, opinion ledgers, JSON |
 
-| Grid | Time per query | With LRU cache hit |
-|------|---------------|-------------------|
-| 16×16  | 0.006 ms | ~0.0001 ms (360×) |
-| 64×64  | 0.035 ms | ~0.0001 ms (350×) |
-| 128×128 | 0.067 ms | — |
-| 256×256 | 0.40 ms | — |
+Use CTest to run every configured test target. Lua-enabled builds also register a Lua smoke check. The [CI workflow](.github/workflows/ci.yml) defines GCC 12, Clang 15, and macOS jobs. The latest local native validation used GCC 16.2 on Windows; configured CI platforms should be verified through their workflow results.
 
-### Memory footprint
+## Benchmarks
 
-| | Size |
-|---|---|
-| `sizeof(NPC)` | 2 368 bytes (2 KB stack) |
-| Estimated heap per NPC | ~6–18 KB (containers, history depth) |
-| 1 000 NPCs | ~10 MB |
-| 10 000 NPCs | ~100 MB |
+```sh
+cmake -S . -B build-bench -DCMAKE_BUILD_TYPE=Release -DNPC_LUA_BRIDGE=OFF -DNPC_BENCHMARKS=ON
+cmake --build build-bench --target run_benchmarks social_benchmarks --parallel
+./build-bench/run_benchmarks --quick
+./build-bench/social_benchmarks
+```
 
-The LOD system is designed so that a world with thousands of NPCs consumes roughly the same CPU budget as one with ~300, assuming typical player movement patterns.
+The social benchmark measures decision/resolution work and ten conversation waves separately. A local Release run with GCC 16.2 on Windows produced:
 
----
+| People | Decisions and resolution | Ten conversation waves |
+| ---: | ---: | ---: |
+| 64 | 0.540 ms | 12.128 ms |
+| 256 | 2.266 ms | 177.642 ms |
+| 1,024 | 16.366 ms | 983.180 ms |
+
+These are subsystem timings with the default eight-topic conversation limit; setup time is excluded. They are not full-game frame rates. The composed NPC update includes pairwise perception and emotion work, so active population, update cadence, and LOD policy remain important. Measure with your own scenario and hardware.
 
 ## Project layout
 
-```
-aithena/
-├── include/npc/
-│   ├── core/           types, vec2, random
-│   ├── event/          event_system — typed pub-sub bus
-│   ├── ai/             fsm, behavior_tree, utility_ai, goap, blackboard, shared_blackboard
-│   ├── perception/     sight cone, hearing, line-of-sight,
-│   │                   sound_perception — noise events, investigation targets
-│   ├── memory/         episodic memory, decay stages, gossip
-│   ├── emotion/        emotion state, needs, contagion
-│   ├── personality/    trait system, multipliers
-│   ├── combat/         threat model, abilities, resources
-│   ├── dialog/         branching trees, reputation variants
-│   ├── trade/          dynamic pricing, transactions
-│   ├── economy/        economy_system — production chains, consumption, caravans
-│   ├── schedule/       daily routines, time-of-day planner
-│   ├── quest/          definition, tracking, events,
-│   │                   quest_generator — procedural quests from world state
-│   ├── skill/          XP, levels, perks, bonuses
-│   ├── navigation/     A*, NavRegions, PathCache, WaypointGraph, steering
-│   ├── social/         faction_system, relationship_system, group_behavior,
-│   │                   influence_chain — rumour propagation, hop recording,
-│   │                   reputation_system — crimes, witnesses, bounties,
-│   │                   family_system — households, marriage, inheritance
-│   ├── world/          world, time, weather, spatial_index, lod_system,
-│   │                   simulation_manager, world_event_manager
-│   ├── threading/      thread_safety, task_scheduler, parallel_ticker
-│   ├── serialization/  json, npc_serializer, save_load — world snapshots
-│   ├── scripting/      lua_bridge — Lua 5.4 scripting bridge
-│   ├── npc_capi.h      — pure-C binding layer (Unity / Unreal / Godot FFI)
-│   └── npc.hpp         main NPC composite class
-├── src/
-│   ├── npc.cpp
-│   ├── world/world.cpp
-│   ├── npc_capi.cpp    — C ABI implementation (build with -DNPC_SHARED=ON)
-│   └── wasm_api.cpp    — Emscripten C exports (npc_init / npc_step / npc_is_complete)
-├── web/
-│   └── index.html      — single-file browser demo (dark terminal theme, WebAssembly)
-├── examples/
-│   ├── village_sim.cpp        — full medieval village demo with contagion/decay/influence output
-│   ├── lua_village.cpp        — Lua scripting demo (zero C++ FSM lambdas)
-│   └── scripts/
-│       ├── guard.lua           — guard FSM: patrol/alert/combat/flee/recover
-│       └── merchant.lua        — merchant schedule: open/lunch/closed/worried
-├── benchmarks/
-│   └── run_benchmarks.cpp  — performance suite (build with -DNPC_BENCHMARKS=ON)
-├── tests/
-│   ├── test_runner.hpp — zero-dependency test framework
-│   └── run_tests.cpp   — test suite (137 tests)
-└── .github/workflows/
-    ├── ci.yml          — GCC 12 + Clang 15 + macOS matrix
-    └── pages.yml       — Emscripten WASM build + GitHub Pages deploy
-```
+| Path | Purpose |
+| --- | --- |
+| [include/npc](include/npc) | Public C++ components and C ABI header |
+| [src](src) | Composed runtime and optional Lua, C ABI, and WASM implementations |
+| [examples](examples) | Village, social-contract, and Lua examples |
+| [docs/social-boundaries.md](docs/social-boundaries.md) | Social architecture, host contracts, limits, persistence |
+| [tests](tests) | Component, social, world, and save regression suites |
+| [benchmarks](benchmarks) | Runtime and social-subsystem measurements |
+| [web](web) | Browser village demo |
 
----
+## License and contact
 
-## A note
+Aithena is available under the [MIT License](LICENSE). See [CHANGELOG.md](CHANGELOG.md) for release history.
 
-This project is free and always will be — for students learning game development, for developers who can't get funding, and for anyone building something they care about without enough time in the day. If this saves you a week of work, that's enough.
-
-If you build something with it, I'd genuinely love to hear about it.
-
-**Contact:** solus.aris@proton.me
-
----
-
-## License
-
-[MIT](LICENSE)
+Questions and project feedback: [solus.aris@proton.me](mailto:solus.aris@proton.me).
