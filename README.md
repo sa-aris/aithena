@@ -10,7 +10,7 @@
 [![Lua](https://img.shields.io/badge/Lua-5.4-2C2D72?logo=lua)](https://www.lua.org/)
 [![C API](https://img.shields.io/badge/C_API-Unity%20%7C%20Unreal%20%7C%20Godot-orange.svg)](#c-api--unity--unreal--godot)
 
-**Aithena** is a self-contained NPC AI framework for games, written in C++17. Drop the `include/` directory into any project and you get 26 interconnected systems — from low-level pathfinding and spatial queries to high-level faction politics, relationship history, procedural quests, a living economy, and narrative-aware dialogue hooks.
+**Aithena** is a self-contained NPC AI framework for games, written in C++17. Drop the `include/` directory into any project and you get interconnected systems — from low-level pathfinding and spatial queries to high-level faction politics, relationship history, procedural quests, a living economy, and narrative-aware dialogue hooks.
 
 No dependencies. No engine lock-in. No runtime overhead you didn't ask for.
 
@@ -58,6 +58,8 @@ That's the whole setup. The guard will now patrol, react to threats, remember at
 ## Systems
 
 ### AI Decision-Making
+
+**Decision boundaries and social contracts** — Policies propose weighted choices inside named constraints on knowledge, time, physical access, and resources. Stable per-cause draws keep unrelated events from shifting a choice. Private intentions become social evidence only through completed work, missed duties, observation, and local conversation. Characters interpret the same evidence through their own norms and relationships. Includes opt-in world integration and versioned saves. See the [architecture and integration guide](docs/social-boundaries.md), or run `./build/social_contract_demo 42`.
 
 **Finite State Machine** — State-based behavior with guarded transitions, priority ordering, and per-state blackboard access. States can be nested or composed with behavior trees at the leaf level.
 

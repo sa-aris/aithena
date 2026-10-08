@@ -49,6 +49,23 @@ target_compile_options(run_tests PRIVATE
 enable_testing()
 add_test(NAME npc_tests COMMAND run_tests)
 
+add_executable(social_contract_tests tests/social_contract_tests.cpp)
+target_include_directories(social_contract_tests PRIVATE include tests)
+add_test(NAME social_contract_tests COMMAND social_contract_tests)
+
+add_executable(social_world_tests tests/social_world_tests.cpp)
+target_include_directories(social_world_tests PRIVATE include tests)
+target_link_libraries(social_world_tests PRIVATE npc_lib)
+add_test(NAME social_world_tests COMMAND social_world_tests)
+
+add_executable(social_save_tests tests/social_save_tests.cpp)
+target_include_directories(social_save_tests PRIVATE include tests)
+add_test(NAME social_save_tests COMMAND social_save_tests)
+
+add_executable(social_contract_demo examples/social_contract_demo.cpp)
+target_link_libraries(social_contract_demo PRIVATE npc_lib)
+add_test(NAME social_contract_demo COMMAND social_contract_demo)
+
 # ─── Lua Scripting Bridge (optional) ─────────────────────────────────
 # Requires Lua 5.4 headers + library. On Ubuntu: sudo apt install liblua5.4-dev
 # Disable with: cmake -DNPC_LUA_BRIDGE=OFF
@@ -104,6 +121,8 @@ endif()
 option(NPC_BENCHMARKS "Build performance benchmark suite" OFF)
 
 if(NPC_BENCHMARKS)
+    add_executable(social_benchmarks benchmarks/social_benchmarks.cpp)
+    target_include_directories(social_benchmarks PRIVATE include)
     add_executable(run_benchmarks benchmarks/run_benchmarks.cpp)
     target_include_directories(run_benchmarks PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/include

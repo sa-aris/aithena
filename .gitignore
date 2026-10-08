@@ -11,6 +11,11 @@ out/
 # Executables
 village_sim
 run_tests
+social_contract_tests
+social_world_tests
+social_save_tests
+social_contract_demo
+social_benchmarks
 *.exe
 
 # CMake
@@ -37,4 +42,5 @@ _CPack_Packages/
 saves/
 *.npc.json
 *.world.json
+*.social.json
 aithena_world_save.json
