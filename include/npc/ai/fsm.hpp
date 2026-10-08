@@ -6,6 +6,7 @@
 #include <functional>
 #include <memory>
 #include <iostream>
+#include <algorithm>
 #include "blackboard.hpp"
 
 namespace npc {

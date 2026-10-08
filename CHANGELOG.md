@@ -10,6 +10,25 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.0.1] — 2026-10-08
+
+### Fixed
+- C ABI handles and NPC event subscriptions are owned by their world and released on retirement. Destruction with a different world is ignored; zero and duplicate entity IDs are rejected.
+- World creation rejects nonpositive dimensions and reports allocation failure as a null pointer. Event callback JSON preserves escaped text and represents nonfinite numbers as `null`.
+- Windows shared libraries use the documented `npc_shared.dll` filename with both MSVC and MinGW.
+- Lua builds include the algorithm declarations needed by the FSM. Pathfinding benchmarks avoid C++20 captures and CPU-specific compiler flags.
+- Standalone shared-blackboard, skill, steering, and threading headers now compile with their own dependencies. Steering supports vector negation; background tasks use the correct template deduction and scheduled activity for fatigue.
+- JSON parsing checks token boundaries, number grammar, trailing input, UTF-8 and Unicode surrogate pairs, and a 128-level nesting limit. Numeric serialization and parsing use the classic locale.
+
+### Added
+- Optional scoped lifetime tracking for `NPC::subscribeToEvents`, shared by the simulation manager and C ABI.
+- C ABI regression tests, a pure-C consumer smoke check, and focused NPC retirement, steering, background-task, and malformed JSON tests (217 unit tests with the shared library enabled).
+- Optional `NPC_HEADER_CHECKS` compilation of all 48 public C++ headers, enabled in CI.
+- Inline browser-demo favicon without an additional asset request.
+- Windows/MSVC CI, shared-library and benchmark compilation in the native matrix, and social benchmark results in CI artifacts. Lua CI uses the 5.4 package and explicitly requires its demo target.
+
+---
+
 ## [2.0.0] — 2026-10-08
 
 ### Added
@@ -120,7 +139,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
-[Unreleased]: https://github.com/sa-aris/aithena/compare/v2.0.0...HEAD
+[Unreleased]: https://github.com/sa-aris/aithena/compare/v2.0.1...HEAD
+[2.0.1]: https://github.com/sa-aris/aithena/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/sa-aris/aithena/compare/v1.1.0...v2.0.0
 [1.1.0]: https://github.com/sa-aris/aithena/releases/tag/v1.1.0
 [1.0.0]: https://github.com/sa-aris/aithena/releases/tag/v1.0.0

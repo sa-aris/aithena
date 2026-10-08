@@ -3,6 +3,10 @@
 #include "npc/npc.hpp"
 #include "npc/serialization/json.hpp"
 #include "npc/world/simulation_manager.hpp"
+#include "npc/navigation/steering.hpp"
+#ifdef NPC_TEST_THREADS
+#include "npc/threading/thread_safety.hpp"
+#endif
 #include <limits>
 
 using namespace npc;
@@ -154,5 +158,53 @@ TEST("SimulationManager: despawn cleans up skill event callbacks") {
     a.reset();
     ASSERT_NO_THROW(w.events().publish(TradeEvent{1, 2, 1, 1, 1}));
 }
+
+TEST("NPC: scoped retirement detaches core and skill callbacks") {
+    GameWorld w(10, 10);
+    auto a = resident(1, {1, 1});
+    SubscriptionGroup lifetime;
+    a->subscribeToEvents(w.events(), &lifetime);
+    w.events().publish(TradeEvent{1, 2, 1, 1, 1});
+    const auto before = a->skills.summary();
+    ASSERT_FALSE(before.empty());
+    lifetime.releaseAll();
+    w.events().publish(TradeEvent{1, 2, 1, 1, 1});
+    ASSERT_EQ(a->skills.summary(), before);
+    a.reset();
+    ASSERT_NO_THROW(w.events().publish(WorldEvent{"meeting", "Repair meeting", {1, 1}, 0.2f}));
+    ASSERT_NO_THROW(w.events().publish(TradeEvent{1, 2, 1, 1, 1}));
+}
+
+TEST("Steering: crowded queues brake and overlapping people separate") {
+    SteeringSystem steering;
+    SteeringAgent a{1, {0, 0}, {2, 0}}, b{2, {0.1f, 0}, {2, 0}};
+    const auto brake = steering.followQueue(a, b, 3);
+    ASSERT_LT(brake.x, 0);
+    ASSERT_NEAR(brake.y, 0, 1e-6f);
+    std::vector<Vec2> positions{a.position, b.position};
+    const auto corrections = SteeringSystem::resolveOverlaps(positions, {a, b});
+    ASSERT_TRUE(positions[0].distanceTo(positions[1]) > 0.1f);
+    ASSERT_LT(corrections[0].delta.x, 0);
+    ASSERT_TRUE(corrections[1].delta.x > 0);
+}
+
+#ifdef NPC_TEST_THREADS
+TEST("Parallel ticker: submitted work completes with scheduled fatigue") {
+    GameWorld w(10, 10);
+    auto a = resident(1, {1, 1});
+    a->schedule.addEntry(6, 7, ActivityType::Work, "Workshop");
+    w.addNPC(a);
+    TaskScheduler scheduler(1);
+    DeferredDispatcher dispatcher;
+    ParallelNPCTicker ticker(scheduler, w, dispatcher);
+    ticker.tickBackground({1}, {{1, 1.0f}});
+    ticker.wait();
+    ASSERT_TRUE(ticker.allDone());
+    ASSERT_NEAR(a->schedule.conditions().fatigue, 0.03f, 1e-6f);
+    ticker.tickDormant({1}, {{1, 0.1f}});
+    ticker.wait();
+    ASSERT_TRUE(ticker.allDone());
+}
+#endif
 
 int main(int argc, char**) { return npc::test::run_all(argc > 1); }

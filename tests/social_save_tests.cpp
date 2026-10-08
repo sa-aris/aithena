@@ -170,4 +170,40 @@ TEST("Social save: malformed social graphs cannot introduce invalid floats") {
     ASSERT_EQ(serial::toString(SocialSerializer::toJson(s)), before);
 }
 
+TEST("Core JSON: incomplete tokens and trailing input are rejected") {
+    for (const auto* input : {"", "tru", "falsex", "nul", "true false", "-", "01",
+             "1.", "1e", "1e+", "1e309", "9223372036854775808", "[1,]", "{\"x\":1,}",
+             "\"unfinished", "\"escape\\", "\"\\x\"", "\"line\nfeed\""})
+        ASSERT_THROWS(serial::parse(input));
+    ASSERT_THROWS(serial::parse(std::string_view{}));
+    ASSERT_TRUE(serial::parse(" \ttrue\r\n").asBool());
+    ASSERT_EQ(serial::parse("-9223372036854775808").asInt(), INT64_MIN);
+    ASSERT_NEAR(serial::parse("1.25e+2").asDouble(), 125, 1e-9);
+}
+
+TEST("Core JSON: Unicode pairs and bounded nesting are validated") {
+    const std::string emoji = "\xF0\x9F\x8C\xB8";
+    ASSERT_EQ(serial::parse("\"\\uD83C\\uDF38\"").asString(), emoji);
+    ASSERT_EQ(serial::parse(serial::toString(emoji)).asString(), emoji);
+    for (const auto* input : {"\"\\uD800\"", "\"\\uDC00\"", "\"\\uD800\\u0041\"",
+             "\"\\u123\"", "\"\\uZZZZ\"", "\"\xC0\x80\"", "\"\xED\xA0\x80\""})
+        ASSERT_THROWS(serial::parse(input));
+    const auto nested = std::string(130, '[') + "0" + std::string(130, ']');
+    ASSERT_THROWS(serial::parse(nested));
+    ASSERT_EQ(serial::parse(serial::toString(std::string("a\0b", 3))).asString(), std::string("a\0b", 3));
+}
+
+TEST("Core JSON: decimal roundtrips do not depend on the global C++ locale") {
+    struct Comma : std::numpunct<char> { char do_decimal_point() const override { return ','; } };
+    struct RestoreLocale {
+        std::locale prior = std::locale();
+        ~RestoreLocale() { std::locale::global(prior); }
+    } restore;
+    std::locale::global(std::locale(std::locale::classic(), new Comma));
+    ASSERT_EQ(serial::toString(1.25), "1.25");
+    ASSERT_NEAR(serial::parse("1.25").asDouble(), 1.25, 1e-12);
+    for (double value : {0.1, -0.0, 1.2345678901234567, 1e100})
+        ASSERT_EQ(serial::parse(serial::toString(value)).asDouble(), value);
+}
+
 int main(int argc, char**) { return npc::test::run_all(argc > 1); }

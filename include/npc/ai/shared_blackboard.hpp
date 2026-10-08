@@ -10,6 +10,7 @@
 
 #include "blackboard.hpp"
 #include "../core/types.hpp"
+#include "../core/vec2.hpp"
 
 #include <any>
 #include <string>

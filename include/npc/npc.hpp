@@ -197,17 +197,22 @@ public:
         applySkillBonuses();
     }
 
-    void subscribeToEvents(EventBus& events) {
-        events.subscribe<CombatEvent>([this](const CombatEvent& e)    { onCombatEvent(e); });
-        events.subscribe<WorldEvent> ([this](const WorldEvent& e)     { onWorldEvent(e);  });
-        events.subscribe<QuestCompletedEvent>([this](const QuestCompletedEvent& e) {
-            onQuestCompleted(e); });
-        events.subscribe<QuestFailedEvent>([this](const QuestFailedEvent& e) {
-            onQuestFailed(e); });
-        events.subscribe<SkillLevelUpEvent>([this](const SkillLevelUpEvent& e) {
-            onSkillLevelUp(e); });
+    // Supply a group when the NPC can leave before the event bus is destroyed.
+    // Destroy or clear that group before destroying the NPC or the bus.
+    void subscribeToEvents(EventBus& events, SubscriptionGroup* lifetime = nullptr) {
+        const auto track = [&](SubscriptionId id) {
+            if (lifetime) lifetime->add(ScopedSubscription(events, id));
+        };
+        track(events.subscribe<CombatEvent>([this](const CombatEvent& e) { onCombatEvent(e); }));
+        track(events.subscribe<WorldEvent>([this](const WorldEvent& e) { onWorldEvent(e); }));
+        track(events.subscribe<QuestCompletedEvent>([this](const QuestCompletedEvent& e) {
+            onQuestCompleted(e); }));
+        track(events.subscribe<QuestFailedEvent>([this](const QuestFailedEvent& e) {
+            onQuestFailed(e); }));
+        track(events.subscribe<SkillLevelUpEvent>([this](const SkillLevelUpEvent& e) {
+            onSkillLevelUp(e); }));
         // Wire skill system XP subscriptions
-        skills.subscribeToEvents(events);
+        skills.subscribeToEvents(events, lifetime);
     }
 
     // ─── Info ────────────────────────────────────────────────────────

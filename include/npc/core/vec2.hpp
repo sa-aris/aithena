@@ -15,6 +15,7 @@ struct Vec2 {
 
     Vec2 operator+(const Vec2& o) const { return {x + o.x, y + o.y}; }
     Vec2 operator-(const Vec2& o) const { return {x - o.x, y - o.y}; }
+    Vec2 operator-() const { return {-x, -y}; }
     Vec2 operator*(float s) const { return {x * s, y * s}; }
     Vec2 operator/(float s) const { return {x / s, y / s}; }
     Vec2& operator+=(const Vec2& o) { x += o.x; y += o.y; return *this; }

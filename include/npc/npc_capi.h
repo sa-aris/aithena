@@ -45,7 +45,7 @@ typedef struct NpcWorld_s    NpcWorld;     /* GameWorld             */
 typedef struct NpcEntity_s*  NpcHandle;    /* NPC*                  */
 typedef struct NpcRelSys_s   NpcRelSys;    /* RelationshipSystem    */
 
-/* ── Enumerations (match C++ values exactly) ─────────────────────────────── */
+/* ── Enumerations (converted to the corresponding C++ types) ───────────── */
 
 typedef enum {
     NPC_EMOTION_HAPPY     = 0,
@@ -107,7 +107,7 @@ typedef struct {
    World
    ══════════════════════════════════════════════════════════════════════════ */
 
-/** Create a world with grid dimensions width × height. */
+/** Create a world; returns NULL for nonpositive dimensions or allocation failure. */
 NPC_API NpcWorld* npc_world_create (int width, int height);
 
 /** Destroy the world and all NPCs it owns. */
@@ -122,7 +122,7 @@ NPC_API void      npc_world_update (NpcWorld* world, float dt);
 /** Current in-game hour of day (0.0 – 23.99). */
 NPC_API float     npc_world_get_hour      (NpcWorld* world);
 
-/** Total game-hours elapsed since world creation. */
+/** Total world-clock hours, including the initial 06:00 starting time. */
 NPC_API float     npc_world_get_total_time(NpcWorld* world);
 
 /* ── World event callbacks ─────────────────────────────────────────────── */
@@ -152,7 +152,8 @@ NPC_API void npc_world_fire_event(NpcWorld*   world,
 /**
  * Create an NPC, add it to the world, and return a handle.
  * The world owns the NPC — do not free the handle manually.
- * @param id    Unique entity ID (must be non-zero).
+ * Returns NULL for invalid input, a duplicate ID, or allocation failure.
+ * @param id    Unique entity ID in this world (must be non-zero).
  * @param name  Display name (copied internally).
  * @param type  One of NpcType.
  */
@@ -160,7 +161,8 @@ NPC_API NpcHandle npc_create (NpcWorld* world, uint32_t id,
                                const char* name, NpcType type);
 
 /**
- * Remove an NPC from the world. The handle is invalid after this call.
+ * Remove an NPC from its owning world. A different world is ignored.
+ * The handle is invalid after this call or destruction of its world.
  */
 NPC_API void      npc_destroy(NpcWorld* world, NpcHandle npc);
 

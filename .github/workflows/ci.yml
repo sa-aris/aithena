@@ -44,21 +44,37 @@ jobs:
       - name: Install Lua (macOS)
         if: matrix.os == 'macos-14'
         run: |
-          brew install lua
-          echo "PKG_CONFIG_PATH=$(brew --prefix lua)/lib/pkgconfig" >> $GITHUB_ENV
+          brew install lua@5.4
+          echo "CMAKE_PREFIX_PATH=$(brew --prefix lua@5.4)" >> "$GITHUB_ENV"
+          echo "PKG_CONFIG_PATH=$(brew --prefix lua@5.4)/lib/pkgconfig" >> "$GITHUB_ENV"
 
       - name: Configure
         env:
           CC: ${{ matrix.cc }}
           CXX: ${{ matrix.cxx }}
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DNPC_LUA_BRIDGE=ON
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DNPC_LUA_BRIDGE=ON -DNPC_SHARED=ON -DNPC_BENCHMARKS=ON -DNPC_HEADER_CHECKS=ON
 
       - name: Build
         run: cmake --build build --parallel
 
+      - name: Verify Lua target is available
+        run: cmake --build build --target lua_village --parallel
+
       - name: Test
         working-directory: build
         run: ctest --output-on-failure
+
+  windows:
+    name: Windows / MSVC
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -B build -DNPC_LUA_BRIDGE=OFF -DNPC_SHARED=ON -DNPC_BENCHMARKS=ON -DNPC_HEADER_CHECKS=ON
+      - name: Build
+        run: cmake --build build --config Release --parallel
+      - name: Test
+        run: ctest --test-dir build -C Release --output-on-failure
 
   benchmark:
     name: Benchmark (ubuntu-22.04 / gcc-12)
@@ -82,13 +98,15 @@ jobs:
             -DNPC_LUA_BRIDGE=OFF
 
       - name: Build
-        run: cmake --build build --target run_benchmarks --parallel
+        run: cmake --build build --target run_benchmarks social_benchmarks --parallel
 
       - name: Run benchmarks
         run: |
           ./build/run_benchmarks --quick --csv > bench_raw.csv
           ./build/run_benchmarks --quick      > bench_text.txt
+          ./build/social_benchmarks          > social_bench_raw.csv
           cat bench_text.txt
+          cat social_bench_raw.csv
 
       - name: Write job summary
         run: |
@@ -99,6 +117,11 @@ jobs:
           echo '```' >> $GITHUB_STEP_SUMMARY
           cat bench_text.txt >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Social subsystem (CSV)" >> $GITHUB_STEP_SUMMARY
+          echo '```csv' >> $GITHUB_STEP_SUMMARY
+          cat social_bench_raw.csv >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
 
       - name: Upload results
         uses: actions/upload-artifact@v4
@@ -107,4 +130,5 @@ jobs:
           path: |
             bench_text.txt
             bench_raw.csv
+            social_bench_raw.csv
           retention-days: 30

@@ -6,68 +6,46 @@
  * no special allocator is required on the caller side.
  */
 
+#ifndef NPC_BUILDING_DLL
 #define NPC_BUILDING_DLL   /* export symbols on Windows */
+#endif
 
 #include "npc/npc_capi.h"
 
 #include "npc/world/world.hpp"
 #include "npc/npc.hpp"
 #include "npc/social/relationship_system.hpp"
+#include "npc/serialization/json.hpp"
 
 #include <cstring>
 #include <cstdio>
 #include <string>
 #include <memory>
 #include <sstream>
+#include <unordered_map>
 
 /* ── Opaque-struct definitions ─────────────────────────────────────────────
  * These complete the forward-declared tags from the header so that the
  * C++ side can store real objects inside them.                              */
 
-struct NpcWorld_s {
-    npc::GameWorld world;
-    explicit NpcWorld_s(int w, int h) : world(w, h) {}
-};
-
 /* NpcEntity_s — thin wrapper so that NpcHandle (struct NpcEntity_s*) has a
  * unique type, while still pointing at the real npc::NPC object.           */
 struct NpcEntity_s {
     npc::NPC* ptr = nullptr;
-    /* NPC lifetime is managed by the owning GameWorld (shared_ptr).
-     * This wrapper is stack-allocated on each C API call site using
-     * a thread-local pool (see makeHandle / releaseHandle below).           */
+    NpcWorld_s* owner = nullptr;
+    npc::SubscriptionGroup subscriptions;
+};
+
+struct NpcWorld_s {
+    npc::GameWorld world;
+    // Destroy subscriptions and handles while the world's event bus is alive.
+    std::unordered_map<npc::NPC*, std::unique_ptr<NpcEntity_s>> handles;
+    explicit NpcWorld_s(int w, int h) : world(w, h) {}
 };
 
 struct NpcRelSys_s {
     npc::RelationshipSystem rs;
 };
-
-/* ── Handle helpers ─────────────────────────────────────────────────────────
- * We need to hand out stable NpcHandle pointers for any NPC that lives in a
- * world.  The world stores shared_ptr<NPC>; we keep a parallel map from
- * NPC* → NpcEntity_s so the same NPC always yields the same handle pointer.
- *
- * For simplicity the registry is embedded in NpcWorld_s.                   */
-
-#include <unordered_map>
-
-/* Extend NpcWorld_s with the handle registry */
-static NpcHandle registerHandle(NpcWorld_s* ws, npc::NPC* npcPtr)
-{
-    /* We store NpcEntity_s objects by pointer inside an unordered_map keyed
-     * on the raw npc::NPC*.  The map is owned by the world so handles are
-     * valid for as long as the world lives.                                 */
-    // (registry is a static map inside this function for simplicity)
-    static thread_local std::unordered_map<npc::NPC*, std::unique_ptr<NpcEntity_s>> s_reg;
-    auto it = s_reg.find(npcPtr);
-    if (it != s_reg.end()) return it->second.get();
-    auto h = std::make_unique<NpcEntity_s>();
-    h->ptr = npcPtr;
-    NpcHandle raw = h.get();
-    s_reg[npcPtr] = std::move(h);
-    (void)ws; // currently unused — could use per-world registries
-    return raw;
-}
 
 static inline npc::NPC* npcOf(NpcHandle h)
 {
@@ -161,7 +139,12 @@ static npc::RelationshipEventType toRelEventType(NpcRelEventType t)
 
 NpcWorld* npc_world_create(int width, int height)
 {
-    return new NpcWorld_s(width, height);
+    if (width <= 0 || height <= 0) return nullptr;
+    try {
+        return new NpcWorld_s(width, height);
+    } catch (const std::exception&) {
+        return nullptr;
+    }
 }
 
 void npc_world_destroy(NpcWorld* world)
@@ -191,12 +174,9 @@ void npc_world_on_world_event(NpcWorld* world, NpcEventFn cb, void* ud)
     if (!world || !cb) return;
     world->world.events().subscribe<npc::WorldEvent>(
         [cb, ud](const npc::WorldEvent& e) {
-            /* Build a minimal JSON string for the event */
-            std::ostringstream ss;
-            ss << "{\"type\":\"" << e.eventType
-               << "\",\"description\":\"" << e.description
-               << "\",\"severity\":" << e.severity << "}";
-            std::string json = ss.str();
+            const auto json = npc::serial::toString(npc::serial::JsonObject{
+                {"type", e.eventType}, {"description", e.description},
+                {"severity", e.severity}}, false);
             cb(json.c_str(), ud);
         });
 }
@@ -206,11 +186,10 @@ void npc_world_on_combat_event(NpcWorld* world, NpcEventFn cb, void* ud)
     if (!world || !cb) return;
     world->world.events().subscribe<npc::CombatEvent>(
         [cb, ud](const npc::CombatEvent& e) {
-            char buf[128];
-            std::snprintf(buf, sizeof(buf),
-                "{\"attacker\":%u,\"defender\":%u,\"damage\":%.1f,\"killed\":%s}",
-                e.attacker, e.defender, e.damage, e.killed ? "true" : "false");
-            cb(buf, ud);
+            const auto json = npc::serial::toString(npc::serial::JsonObject{
+                {"attacker", e.attacker}, {"defender", e.defender},
+                {"damage", e.damage}, {"killed", e.killed}}, false);
+            cb(json.c_str(), ud);
         });
 }
 
@@ -234,27 +213,38 @@ void npc_world_fire_event(NpcWorld*   world,
 NpcHandle npc_create(NpcWorld* world, uint32_t id,
                      const char* name, NpcType type)
 {
-    if (!world || !name) return nullptr;
-    auto npcPtr = std::make_shared<npc::NPC>(
-        static_cast<npc::EntityId>(id),
-        std::string(name),
-        toNPCType(type));
-    npcPtr->subscribeToEvents(world->world.events());
-    world->world.addNPC(npcPtr);
-    return registerHandle(world, npcPtr.get());
+    if (!world || !name || id == 0 || world->world.findNPC(id)) return nullptr;
+    try {
+        auto npcPtr = std::make_shared<npc::NPC>(id, std::string(name), toNPCType(type));
+        auto handle = std::make_unique<NpcEntity_s>();
+        handle->ptr = npcPtr.get();
+        handle->owner = world;
+        npcPtr->subscribeToEvents(world->world.events(), &handle->subscriptions);
+        const auto raw = handle.get();
+        world->handles.emplace(npcPtr.get(), std::move(handle));
+        try {
+            world->world.addNPC(npcPtr);
+        } catch (...) {
+            world->handles.erase(npcPtr.get());
+            throw;
+        }
+        return raw;
+    } catch (const std::exception&) {
+        return nullptr;
+    }
 }
 
 void npc_destroy(NpcWorld* world, NpcHandle npc)
 {
-    if (!world || !npc) return;
+    if (!world || !npc || npc->owner != world) return;
     npc::NPC* ptr = npcOf(npc);
+    // Unsubscribe callbacks before releasing their NPC and handle.
+    world->handles.erase(ptr);
     auto& npcs = world->world.npcs();
     npcs.erase(
         std::remove_if(npcs.begin(), npcs.end(),
             [ptr](const std::shared_ptr<npc::NPC>& sp) { return sp.get() == ptr; }),
         npcs.end());
-    /* NpcEntity_s handle stays in the registry; the raw pointer is now
-     * dangling — the caller must not use it after this call.               */
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -425,8 +415,7 @@ void npc_fsm_add_state(NpcHandle   npc,
     npc::NPC* p = npcOf(npc);
     if (!p || !state_id) return;
 
-    /* Capture the raw NPC* (not the handle — the handle wrapper may move)
-     * and the C function pointers.  The NPC* is stable for the world's life. */
+    /* Handles remain stable until their NPC or world is destroyed. */
     NpcHandle h = npc;
 
     npc::LambdaState::Callback updateCb;
@@ -629,5 +618,5 @@ int npc_rel_narrative(NpcRelSys*  rs,
 
 const char* npc_version(void)
 {
-    return "2.0.0";
+    return "2.0.1";
 }

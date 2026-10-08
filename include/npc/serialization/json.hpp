@@ -14,6 +14,10 @@
 #include <limits>
 #include <cstdio>
 #include <cstring>
+#include <string_view>
+#include <charconv>
+#include <iomanip>
+#include <locale>
 
 namespace npc::serial {
 
@@ -171,17 +175,17 @@ inline void write(const JsonValue& v, std::string& out, int ind, int d) {
         case 1: out += v.asBool() ? "true" : "false"; return;
         case 2: out += std::to_string(v.asInt()); return;
         case 3: {
-            char buf[64];
             double x = v.asDouble();
             if (!std::isfinite(x)) {
                 out += "null";
                 return;
             }
-            if (std::abs(x) < 1e15 && x == static_cast<double>(static_cast<int64_t>(x)))
-                std::snprintf(buf, sizeof(buf), "%.1f", x);
-            else
-                std::snprintf(buf, sizeof(buf), "%.*g", std::numeric_limits<double>::max_digits10, x);
-            out += buf; return;
+            std::ostringstream number;
+            number.imbue(std::locale::classic());
+            number << std::setprecision(std::numeric_limits<double>::max_digits10) << x;
+            auto text = number.str();
+            if (text.find_first_of(".eE") == std::string::npos) text += ".0";
+            out += text; return;
         }
         case 4: out += escStr(v.asString()); return;
         case 5: { // array
@@ -226,100 +230,180 @@ inline std::string toString(const JsonValue& v, bool pretty = true) {
 namespace detail {
 
 struct Parser {
-    const char* p;
-    const char* end;
+    std::string_view source;
+    size_t pos = 0;
+    static constexpr size_t MAX_DEPTH = 128;
 
-    explicit Parser(std::string_view s) : p(s.data()), end(s.data()+s.size()) {}
-
+    explicit Parser(std::string_view s) : source(s) {}
+    [[noreturn]] static void fail() { throw std::runtime_error("JSON: invalid or incomplete input"); }
+    static bool digit(char c) { return c >= '0' && c <= '9'; }
     void skip() {
-        while (p < end && (*p==' '||*p=='\t'||*p=='\n'||*p=='\r')) ++p;
+        while (pos < source.size() && (source[pos] == ' ' || source[pos] == '\t' ||
+               source[pos] == '\n' || source[pos] == '\r')) ++pos;
     }
-    char peek() { skip(); return p < end ? *p : '\0'; }
-    char consume() { skip(); return p < end ? *p++ : '\0'; }
+    char peek() { skip(); return pos < source.size() ? source[pos] : '\0'; }
+    char consume() { skip(); if (pos == source.size()) fail(); return source[pos++]; }
 
+    unsigned hex4() {
+        if (source.size() - pos < 4) fail();
+        unsigned cp = 0;
+        for (int i = 0; i < 4; ++i) {
+            const char c = source[pos++];
+            unsigned value;
+            if (c >= '0' && c <= '9') value = c - '0';
+            else if (c >= 'a' && c <= 'f') value = c - 'a' + 10;
+            else if (c >= 'A' && c <= 'F') value = c - 'A' + 10;
+            else { fail(); }
+            cp = (cp << 4) | value;
+        }
+        return cp;
+    }
+    static void utf8(std::string& out, unsigned cp) {
+        if (cp < 0x80) out += static_cast<char>(cp);
+        else {
+            if (cp < 0x800) out += static_cast<char>(0xC0 | (cp >> 6));
+            else {
+                if (cp < 0x10000) out += static_cast<char>(0xE0 | (cp >> 12));
+                else {
+                    out += static_cast<char>(0xF0 | (cp >> 18));
+                    out += static_cast<char>(0x80 | ((cp >> 12) & 0x3F));
+                }
+                out += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+            }
+            out += static_cast<char>(0x80 | (cp & 0x3F));
+        }
+    }
     std::string parseString() {
-        ++p; // opening "
-        std::string s;
-        while (p < end && *p != '"') {
-            if (*p == '\\') {
-                ++p;
-                switch (*p) {
-                    case '"': s+='"'; break; case '\\': s+='\\'; break;
-                    case '/': s+='/'; break; case 'n': s+='\n'; break;
-                    case 'r': s+='\r'; break; case 't': s+='\t'; break;
-                    case 'b': s+='\b'; break; case 'f': s+='\f'; break;
+        if (consume() != '"') fail();
+        std::string out;
+        while (pos < source.size()) {
+            const auto c = static_cast<unsigned char>(source[pos++]);
+            if (c == '"') return out;
+            if (c < 0x20) fail();
+            if (c == '\\') {
+                if (pos == source.size()) fail();
+                switch (source[pos++]) {
+                    case '"': out += '"'; break; case '\\': out += '\\'; break;
+                    case '/': out += '/'; break; case 'n': out += '\n'; break;
+                    case 'r': out += '\r'; break; case 't': out += '\t'; break;
+                    case 'b': out += '\b'; break; case 'f': out += '\f'; break;
                     case 'u': {
-                        char h[5]={};
-                        for (int i=0;i<4&&p+1<end;++i) h[i]=*++p;
-                        unsigned cp = static_cast<unsigned>(std::strtoul(h,nullptr,16));
-                        if (cp < 0x80) s += static_cast<char>(cp);
-                        else if (cp < 0x800) { s+=static_cast<char>(0xC0|(cp>>6)); s+=static_cast<char>(0x80|(cp&0x3F)); }
-                        else { s+=static_cast<char>(0xE0|(cp>>12)); s+=static_cast<char>(0x80|((cp>>6)&0x3F)); s+=static_cast<char>(0x80|(cp&0x3F)); }
+                        unsigned cp = hex4();
+                        if (cp >= 0xD800 && cp <= 0xDBFF) {
+                            if (source.substr(pos, 2) != "\\u") fail();
+                            pos += 2;
+                            const unsigned low = hex4();
+                            if (low < 0xDC00 || low > 0xDFFF) fail();
+                            cp = 0x10000 + ((cp - 0xD800) << 10) + low - 0xDC00;
+                        } else if (cp >= 0xDC00 && cp <= 0xDFFF) fail();
+                        utf8(out, cp);
                         break;
                     }
-                    default: s += *p;
+                    default: fail();
                 }
-                ++p;
-            } else { s += *p++; }
+            } else if (c < 0x80) out += static_cast<char>(c);
+            else {
+                const unsigned count = c >= 0xC2 && c <= 0xDF ? 1 :
+                    c >= 0xE0 && c <= 0xEF ? 2 : c >= 0xF0 && c <= 0xF4 ? 3 : 0;
+                if (!count || source.size() - pos < count) fail();
+                unsigned cp = c & (count == 1 ? 0x1F : count == 2 ? 0x0F : 0x07);
+                for (unsigned i = 0; i < count; ++i) {
+                    const auto next = static_cast<unsigned char>(source[pos++]);
+                    if ((next & 0xC0) != 0x80) fail();
+                    cp = (cp << 6) | (next & 0x3F);
+                }
+                if (cp < (count == 1 ? 0x80u : count == 2 ? 0x800u : 0x10000u) ||
+                    cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF)) fail();
+                utf8(out, cp);
+            }
         }
-        if (p < end) ++p; // closing "
-        return s;
+        fail();
     }
 
     JsonValue parseNumber() {
-        const char* start = p;
+        const size_t start = pos;
         bool flt = false;
-        if (*p=='-') ++p;
-        while (p<end && *p>='0' && *p<='9') ++p;
-        if (p<end && *p=='.') { flt=true; ++p; while(p<end&&*p>='0'&&*p<='9') ++p; }
-        if (p<end && (*p=='e'||*p=='E')) { flt=true; ++p; if(*p=='+'||*p=='-') ++p; while(p<end&&*p>='0'&&*p<='9') ++p; }
-        std::string num(start, p);
-        if (flt) return std::stod(num);
-        return static_cast<int64_t>(std::stoll(num));
+        if (source[pos] == '-') ++pos;
+        if (pos == source.size() || !digit(source[pos])) fail();
+        if (source[pos] == '0') {
+            ++pos;
+            if (pos < source.size() && digit(source[pos])) fail();
+        } else while (pos < source.size() && digit(source[pos])) ++pos;
+        if (pos < source.size() && source[pos] == '.') {
+            flt = true; ++pos;
+            if (pos == source.size() || !digit(source[pos])) fail();
+            while (pos < source.size() && digit(source[pos])) ++pos;
+        }
+        if (pos < source.size() && (source[pos] == 'e' || source[pos] == 'E')) {
+            flt = true; ++pos;
+            if (pos < source.size() && (source[pos] == '+' || source[pos] == '-')) ++pos;
+            if (pos == source.size() || !digit(source[pos])) fail();
+            while (pos < source.size() && digit(source[pos])) ++pos;
+        }
+        const auto num = source.substr(start, pos - start);
+        if (flt) {
+            std::istringstream input{std::string(num)};
+            input.imbue(std::locale::classic());
+            double value;
+            if (!(input >> value) || !std::isfinite(value)) fail();
+            return value;
+        }
+        int64_t value;
+        const auto result = std::from_chars(num.data(), num.data() + num.size(), value);
+        if (result.ec != std::errc{} || result.ptr != num.data() + num.size()) fail();
+        return value;
     }
 
-    JsonValue parseValue() {
+    JsonValue literal(std::string_view text, JsonValue value) {
+        if (source.substr(pos, text.size()) != text) fail();
+        pos += text.size();
+        return value;
+    }
+
+    JsonValue parseValue(size_t depth = 0) {
+        if (depth > MAX_DEPTH) fail();
         char c = peek();
+        if ((c == '{' || c == '[') && depth >= MAX_DEPTH) fail();
         if (c=='"') return parseString();
-        if (c=='{') return parseObject();
-        if (c=='[') return parseArray();
-        if (c=='t') { p+=4; return true; }
-        if (c=='f') { p+=5; return false; }
-        if (c=='n') { p+=4; return nullptr; }
+        if (c=='{') return parseObject(depth);
+        if (c=='[') return parseArray(depth);
+        if (c=='t') return literal("true", true);
+        if (c=='f') return literal("false", false);
+        if (c=='n') return literal("null", nullptr);
         if (c=='-'||(c>='0'&&c<='9')) return parseNumber();
-        throw std::runtime_error(std::string("JSON: unexpected '") + c + "'");
+        fail();
     }
 
-    JsonValue parseObject() {
-        ++p; // {
+    JsonValue parseObject(size_t depth) {
+        ++pos;
         JsonObject o;
-        if (peek()=='}') { ++p; return o; }
+        if (peek()=='}') { ++pos; return o; }
         while (true) {
             skip();
             if (peek()!='"') throw std::runtime_error("JSON: expected key string");
             std::string key = parseString();
             skip();
             if (consume()!=':') throw std::runtime_error("JSON: expected ':'");
-            o[key] = parseValue();
+            o[key] = parseValue(depth + 1);
             skip();
             char ch = peek();
-            if (ch=='}') { ++p; break; }
-            if (ch==',') { ++p; continue; }
+            if (ch=='}') { ++pos; break; }
+            if (ch==',') { ++pos; continue; }
             throw std::runtime_error("JSON: expected ',' or '}'");
         }
         return o;
     }
 
-    JsonValue parseArray() {
-        ++p; // [
+    JsonValue parseArray(size_t depth) {
+        ++pos;
         JsonArray a;
-        if (peek()==']') { ++p; return a; }
+        if (peek()==']') { ++pos; return a; }
         while (true) {
-            a.push_back(parseValue());
+            a.push_back(parseValue(depth + 1));
             skip();
             char ch = peek();
-            if (ch==']') { ++p; break; }
-            if (ch==',') { ++p; continue; }
+            if (ch==']') { ++pos; break; }
+            if (ch==',') { ++pos; continue; }
             throw std::runtime_error("JSON: expected ',' or ']'");
         }
         return a;
@@ -330,7 +414,10 @@ struct Parser {
 
 inline JsonValue parse(std::string_view s) {
     detail::Parser p(s);
-    return p.parseValue();
+    auto value = p.parseValue();
+    p.skip();
+    if (p.pos != s.size()) detail::Parser::fail();
+    return value;
 }
 
 // ─── File I/O ─────────────────────────────────────────────────────────

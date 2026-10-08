@@ -313,7 +313,8 @@ static void bench_pathfinding(int outer_iters)
         ? std::vector<GridCase>{{16,16},{64,64}}
         : std::vector<GridCase>{{16,16},{32,32},{64,64},{128,128},{256,256}};
 
-    for (auto [w, h] : cases) {
+    for (const auto& grid : cases) {
+        const int w = grid.w, h = grid.h;
         auto walkable = [](int, int){ return true; };
         npc::Vec2 start{1.f, 1.f};
         npc::Vec2 goal{ static_cast<float>(w-2), static_cast<float>(h-2) };

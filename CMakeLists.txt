@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 project(Aithena
-    VERSION 2.0.0
+    VERSION 2.0.1
     DESCRIPTION "C++17 NPC AI framework — FSM, behavior trees, emotions, memory, pathfinding, relationships, living economy, procedural quests, Lua scripting"
     LANGUAGES CXX
 )
@@ -27,6 +27,23 @@ target_include_directories(npc_lib PUBLIC
 
 # Required so npc_lib can be linked into the C API shared library
 set_property(TARGET npc_lib PROPERTY POSITION_INDEPENDENT_CODE ON)
+
+# Verify that public C++ headers provide their own dependencies.
+option(NPC_HEADER_CHECKS "Compile public C++ headers individually" OFF)
+if(NPC_HEADER_CHECKS)
+    file(GLOB_RECURSE npc_public_headers CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/include/npc/*.hpp")
+    file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/header-checks")
+    set(npc_header_sources)
+    foreach(header IN LISTS npc_public_headers)
+        file(RELATIVE_PATH header_name "${CMAKE_CURRENT_SOURCE_DIR}/include" "${header}")
+        string(MAKE_C_IDENTIFIER "${header_name}" header_id)
+        set(header_source "${CMAKE_CURRENT_BINARY_DIR}/header-checks/${header_id}.cpp")
+        file(WRITE "${header_source}" "#include \"${header_name}\"\n")
+        list(APPEND npc_header_sources "${header_source}")
+    endforeach()
+    add_library(npc_header_checks OBJECT ${npc_header_sources})
+    target_include_directories(npc_header_checks PRIVATE include)
+endif()
 
 # ─── Village Simulation Demo ─────────────────────────────────────────
 
@@ -56,6 +73,11 @@ add_test(NAME social_contract_tests COMMAND social_contract_tests)
 add_executable(social_world_tests tests/social_world_tests.cpp)
 target_include_directories(social_world_tests PRIVATE include tests)
 target_link_libraries(social_world_tests PRIVATE npc_lib)
+if(NOT EMSCRIPTEN)
+    find_package(Threads REQUIRED)
+    target_link_libraries(social_world_tests PRIVATE Threads::Threads)
+    target_compile_definitions(social_world_tests PRIVATE NPC_TEST_THREADS=1)
+endif()
 add_test(NAME social_world_tests COMMAND social_world_tests)
 
 add_executable(social_save_tests tests/social_save_tests.cpp)
@@ -129,7 +151,7 @@ if(NPC_BENCHMARKS)
     )
     target_link_libraries(run_benchmarks PRIVATE npc_lib)
     target_compile_options(run_benchmarks PRIVATE
-        $<$<CXX_COMPILER_ID:GNU,Clang>:-O3 -march=native>
+        $<$<CXX_COMPILER_ID:GNU,Clang>:-O3>
     )
 endif()
 
@@ -155,6 +177,21 @@ if(NPC_SHARED AND NOT EMSCRIPTEN)
         CXX_VISIBILITY_PRESET hidden
         VISIBILITY_INLINES_HIDDEN ON
     )
+    if(WIN32)
+        set_target_properties(npc_shared PROPERTIES PREFIX "")
+    endif()
+
+    add_executable(c_api_tests tests/c_api_tests.cpp)
+    target_include_directories(c_api_tests PRIVATE tests)
+    target_link_libraries(c_api_tests PRIVATE npc_shared)
+    target_compile_definitions(c_api_tests PRIVATE NPC_EXPECTED_VERSION="${PROJECT_VERSION}")
+    add_test(NAME c_api_tests COMMAND c_api_tests)
+
+    enable_language(C)
+    add_executable(c_api_smoke tests/c_api_smoke.c)
+    target_link_libraries(c_api_smoke PRIVATE npc_shared)
+    set_target_properties(c_api_smoke PROPERTIES C_STANDARD 99 C_STANDARD_REQUIRED ON)
+    add_test(NAME c_api_smoke COMMAND c_api_smoke)
 endif()
 
 # ─── WASM target (Emscripten only) ───────────────────────────────────

@@ -19,6 +19,8 @@
 #include "../event/event_system.hpp"
 #include "../world/spatial_index.hpp"
 #include "../ai/shared_blackboard.hpp"
+#include "../npc.hpp"
+#include "../world/world.hpp"
 
 #include <atomic>
 #include <mutex>
@@ -598,19 +600,21 @@ public:
     void tickBackground(const std::vector<EntityId>& ids,
                         const std::unordered_map<EntityId,float>& accumDts)
     {
+        const float hour = world_.time().currentHour();
+        const auto day = world_.time().dayOfWeek();
         for (EntityId id : ids) {
             float dt = 0.f;
             auto it = accumDts.find(id);
             if (it != accumDts.end()) dt = it->second;
 
-            futures_.push_back(scheduler_.submitAsync<void>(
-                [this, id, dt]() {
+            futures_.push_back(scheduler_.submitAsync(
+                [this, id, dt, hour, day]() {
                     NPC* npc = world_.findNPC(id);
                     if (!npc) return;
                     if (backgroundFn_) {
                         backgroundFn_(*npc, dt);
                     } else {
-                        defaultBackgroundTick(*npc, dt);
+                        defaultBackgroundTick(*npc, dt, hour, day);
                     }
                 },
                 TaskPriority::Normal));
@@ -626,7 +630,7 @@ public:
             auto it = accumDts.find(id);
             if (it != accumDts.end()) dt = it->second;
 
-            futures_.push_back(scheduler_.submitAsync<void>(
+            futures_.push_back(scheduler_.submitAsync(
                 [this, id, dt]() {
                     NPC* npc = world_.findNPC(id);
                     if (!npc) return;
@@ -653,10 +657,11 @@ public:
 private:
     // Default tick logic — must be safe to run concurrently
     // (no shared mutable state beyond the NPC's own systems)
-    static void defaultBackgroundTick(NPC& npc, float dt) {
+    static void defaultBackgroundTick(NPC& npc, float dt, float hour, DayOfWeek day) {
         npc.emotions.update(dt);
         npc.updateMovement(dt);
-        npc.schedule.updateFatigue(dt);
+        const auto activity = npc.schedule.getCurrentActivity(hour, day);
+        npc.schedule.updateFatigue(dt, activity ? activity->activity : ActivityType::Idle);
     }
 
     static void defaultDormantTick(NPC& npc, float dt) {

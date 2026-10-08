@@ -181,19 +181,7 @@ public:
         // Wire event subscriptions; store as ScopedSubscription group
         // so they auto-cleanup on despawn.
         auto& group = subscriptions_[id];
-        world_.events().subscribeInto<CombatEvent>(group,
-            [n = npc.get()](const CombatEvent& e) { n->onCombatEvent(e); });
-        world_.events().subscribeInto<WorldEvent>(group,
-            [n = npc.get()](const WorldEvent& e) { n->onWorldEvent(e); });
-        world_.events().subscribeInto<QuestCompletedEvent>(group,
-            [n = npc.get()](const QuestCompletedEvent& e) { n->onQuestCompleted(e); });
-        world_.events().subscribeInto<QuestFailedEvent>(group,
-            [n = npc.get()](const QuestFailedEvent& e) { n->onQuestFailed(e); });
-        world_.events().subscribeInto<SkillLevelUpEvent>(group,
-            [n = npc.get()](const SkillLevelUpEvent& e) { n->onSkillLevelUp(e); });
-
-        // Wire skill system's own event subscriptions
-        npc->skills.subscribeToEvents(world_.events(), &group);
+        npc->subscribeToEvents(world_.events(), &group);
 
         // Initial spatial registration
         spatial_.update(id, npc->position);

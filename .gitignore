@@ -1,5 +1,6 @@
 # Build
 build/
+build-*/
 cmake-build-*/
 out/
 *.o
@@ -16,6 +17,8 @@ social_world_tests
 social_save_tests
 social_contract_demo
 social_benchmarks
+c_api_tests
+c_api_smoke
 *.exe
 
 # CMake

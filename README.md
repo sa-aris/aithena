@@ -3,12 +3,12 @@
 C++17 NPC simulation with explicit decision boundaries and local social consequences.
 
 [![CI](https://github.com/sa-aris/aithena/actions/workflows/ci.yml/badge.svg)](https://github.com/sa-aris/aithena/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-2.0.0-blue.svg)](https://github.com/sa-aris/aithena/releases/tag/v2.0.0)
+[![Version](https://img.shields.io/badge/version-2.0.1-blue.svg)](https://github.com/sa-aris/aithena/releases/tag/v2.0.1)
 [![C++17](https://img.shields.io/badge/C%2B%2B-17-blue.svg)](https://en.cppreference.com/w/cpp/17)
-[![Tests](https://img.shields.io/badge/unit_tests-203-blue.svg)](#verification)
+[![Tests](https://img.shields.io/badge/unit_tests-217-blue.svg)](#verification)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-The latest release is [v2.0.0](https://github.com/sa-aris/aithena/releases/tag/v2.0.0). See the [changelog](CHANGELOG.md#200--2026-10-08) and [migration guidance](#integration) when upgrading from 1.1.
+The latest release is [v2.0.1](https://github.com/sa-aris/aithena/releases/tag/v2.0.1). See the [changelog](CHANGELOG.md#201--2026-10-08) and [migration guidance](#integration) when upgrading from 1.1.
 
 Aithena gives game characters personal knowledge, finite resources, relationships, memory, and responsibilities. Policies propose what a character might do; boundaries determine what the world permits. Choices can vary while their causes and consequences stay coherent.
 
@@ -25,6 +25,8 @@ Run the scenario with `./build/social_contract_demo 123`. The [browser village d
 ## Quick start
 
 Requirements: a C++17 compiler and CMake 3.16 or newer.
+
+The `ctest --test-dir` commands below require CMake 3.20. With an older version, run `ctest` from the build directory instead. See the [CTest command reference](https://cmake.org/cmake/help/latest/manual/ctest.1.html).
 
 ```sh
 git clone https://github.com/sa-aris/aithena.git
@@ -150,6 +152,8 @@ For a standalone module such as `DecisionBoundary` or `SocialContractSystem`, ad
 
 When migrating from 1.1 to 2.0, keep `GameWorld` at a stable address. Copying and moving are disabled because its hooks refer to the world; use a `std::unique_ptr<GameWorld>` if ownership must move. Keep the world alive longer than its `SimulationManager`. Social state is single-threaded; serialize access to it. Parallel background ticking and thread-safe wrappers are separate, optional facilities.
 
+If an NPC can retire while its event bus continues running, pass a `SubscriptionGroup` to `NPC::subscribeToEvents` and clear the group before destroying the NPC or the bus. `SimulationManager` and the C ABI manage these subscriptions automatically.
+
 ### Lua
 
 Install Lua 5.4 development headers and libraries, then enable the bridge:
@@ -168,10 +172,15 @@ Build a shared library for engines that support native C bindings:
 
 ```sh
 cmake -S . -B build-capi -DCMAKE_BUILD_TYPE=Release -DNPC_LUA_BRIDGE=OFF -DNPC_SHARED=ON
-cmake --build build-capi --target npc_shared --parallel
+cmake --build build-capi --parallel
+ctest --test-dir build-capi --output-on-failure
 ```
 
 The outputs are `libnpc_shared.so` on Linux, `libnpc_shared.dylib` on macOS, and `npc_shared.dll` on Windows. The [C header](include/npc/npc_capi.h) exposes world/NPC lifecycle, movement, combat, emotions, memories, FSM callbacks, blackboards, and relationship queries. Use P/Invoke in Unity, native bindings in Unreal, or GDExtension in Godot. The social-contract module is currently a C++ interface.
+
+Deploy the shared library together with the runtime libraries required by its compiler.
+
+The world owns its handles; they expire when their NPC or world is destroyed. Serialize calls into each world. Callbacks run synchronously: defer destruction until the callback and current simulation step have returned. Copy callback JSON and returned strings if they must be retained. Creating an NPC requires a nonzero ID unique within its world.
 
 ### WebAssembly
 
@@ -190,16 +199,19 @@ cmake --build build-wasm --target npc_wasm --parallel
 
 ## Verification
 
-The current native suites contain **203 unit tests**, plus a social-demo smoke check:
+The current suites contain **209 core unit tests** and **8 C ABI tests** when `NPC_SHARED=ON`, for **217 total**, plus separate demo and pure-C smoke checks:
 
 | Suite | Tests | Focus |
 | --- | ---: | --- |
 | `run_tests` | 137 | Existing components and living-world systems |
 | `social_contract_tests` | 40 | Boundaries, resources, sustained work, evidence, gossip, correction |
-| `social_world_tests` | 11 | Movement, stamina, urgent needs, LOD, lifecycle, core fixes |
-| `social_save_tests` | 15 | Save validation, pending work, evidence paths, opinion ledgers, JSON |
+| `social_world_tests` | 14 | Movement, stamina, urgent needs, LOD, lifecycle, scoped subscriptions, steering and background tasks |
+| `social_save_tests` | 18 | Save validation, pending work, evidence paths, opinion ledgers, strict JSON and locale independence |
+| `c_api_tests` | 8 | Handle ownership, retirement, callbacks, JSON payloads, buffers and runtime version |
 
-Use CTest to run every configured test target. Lua-enabled builds also register a Lua smoke check. The [CI workflow](.github/workflows/ci.yml) defines GCC 12, Clang 15, and macOS jobs. The latest local native validation used GCC 16.2 on Windows; configured CI platforms should be verified through their workflow results.
+Use CTest to run every configured test target. Lua-enabled builds also register a Lua smoke check; shared-library builds add a consumer compiled as C99. The [CI workflow](.github/workflows/ci.yml) defines GCC 12, Clang 15, macOS, and Windows/MSVC jobs, including shared-library and benchmark builds. The latest local validation used GCC 16.2 on Windows with Lua 5.4.9 and the C ABI enabled. Confirm hosted checks and Pages deployment through their workflow results.
+
+Configure with `-DNPC_HEADER_CHECKS=ON` to compile all 48 public C++ headers individually. CI enables this check to catch missing includes and standalone integration errors.
 
 ## Benchmarks
 
@@ -214,9 +226,9 @@ The social benchmark measures decision/resolution work and ten conversation wave
 
 | People | Decisions and resolution | Ten conversation waves |
 | ---: | ---: | ---: |
-| 64 | 0.540 ms | 12.128 ms |
-| 256 | 2.266 ms | 177.642 ms |
-| 1,024 | 16.366 ms | 983.180 ms |
+| 64 | 0.823 ms | 15.267 ms |
+| 256 | 2.478 ms | 214.704 ms |
+| 1,024 | 17.667 ms | 1,236.160 ms |
 
 These are subsystem timings with the default eight-topic conversation limit; setup time is excluded. They are not full-game frame rates. The composed NPC update includes pairwise perception and emotion work, so active population, update cadence, and LOD policy remain important. Measure with your own scenario and hardware.
 
